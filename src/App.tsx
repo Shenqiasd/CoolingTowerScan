@@ -10,10 +10,9 @@ import { useStats } from './hooks/useStats';
 import { useDetectionResults } from './hooks/useDetectionResults';
 import type { Enterprise } from './types/enterprise';
 import { supabase } from './lib/supabase';
+import { getListSelectionUpdate, type ViewTab } from './utils/listSelection';
 
 const MapView = lazy(() => import('./components/MapView'));
-
-type ViewTab = 'map' | 'list';
 
 function App() {
   const {
@@ -59,11 +58,10 @@ function App() {
   const handleSelectFromList = useCallback((enterprise: Enterprise) => {
     setSelectedEnterprise(enterprise);
     fetchForEnterprise(enterprise.id);
-    if (enterprise.latitude && enterprise.longitude) {
-      setFlyTo({ latitude: enterprise.latitude, longitude: enterprise.longitude });
-      setActiveTab('map');
-    }
-  }, [fetchForEnterprise]);
+    const selectionUpdate = getListSelectionUpdate(activeTab, flyTo, enterprise);
+    setFlyTo(selectionUpdate.flyTo);
+    setActiveTab(selectionUpdate.activeTab);
+  }, [activeTab, fetchForEnterprise, flyTo]);
 
   const handleCloseDetail = useCallback(() => {
     setSelectedEnterprise(null);
