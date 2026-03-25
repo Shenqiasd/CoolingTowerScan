@@ -100,10 +100,6 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
       <div className="p-4 space-y-4 max-h-[calc(100vh-400px)] overflow-y-auto custom-scrollbar">
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div>
-            <span className="text-slate-500">户号</span>
-            <p className="text-white">{enterprise.account_number}</p>
-          </div>
-          <div>
             <span className="text-slate-500">行业分类</span>
             <p className="text-white">{enterprise.industry_category}</p>
           </div>
