@@ -22,6 +22,14 @@ function findColumn(row: CsvRow, ...candidates: string[]): string {
   return '';
 }
 
+function normalizeProbabilityLevel(raw: string): string {
+  const val = raw.trim();
+  if (val.startsWith('高')) return '高';
+  if (val.startsWith('中')) return '中等';
+  if (val.startsWith('低')) return '低';
+  return val || '高';
+}
+
 function parseMatchDetails(raw: string): Record<string, unknown> {
   if (!raw || raw.trim() === '') return {};
   try {
@@ -71,7 +79,7 @@ export async function importCsvFile(
             address: findColumn(row, '用电地址').trim(),
             industry_category: findColumn(row, '行业分类').trim(),
             composite_score: parseFloat(findColumn(row, '综合评分')) || 0,
-            probability_level: (findColumn(row, '概率等级') || '高').trim(),
+            probability_level: normalizeProbabilityLevel(findColumn(row, '概率等级')),
             match_dimension_details: parseMatchDetails(findColumn(row, '匹配维度详情')),
             geocoding_status: 'pending',
             detection_status: 'pending',
