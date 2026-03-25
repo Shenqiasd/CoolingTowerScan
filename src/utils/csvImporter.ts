@@ -1,14 +1,25 @@
 import Papa from 'papaparse';
 import { supabase } from '../lib/supabase';
 
-interface CsvRow {
-  户号: string;
-  户名: string;
-  用电地址: string;
-  行业分类: string;
-  综合评分: string;
-  概率等级: string;
-  匹配维度详情: string;
+type CsvRow = Record<string, string>;
+
+function normalizeKey(key: string): string {
+  return key
+    .replace(/^\uFEFF/, '')
+    .replace(/\s/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
+}
+
+function findColumn(row: CsvRow, ...candidates: string[]): string {
+  const normalized = Object.fromEntries(
+    Object.entries(row).map(([k, v]) => [normalizeKey(k), v])
+  );
+  for (const candidate of candidates) {
+    const val = normalized[normalizeKey(candidate)];
+    if (val !== undefined) return val;
+  }
+  return '';
 }
 
 function parseMatchDetails(raw: string): Record<string, unknown> {
@@ -44,22 +55,24 @@ export async function importCsvFile(
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
-        const rows = results.data.filter(
-          (row) => row['户号'] && row['户名'] && row['户号'].trim() !== ''
-        );
+        const rows = results.data.filter((row) => {
+          const acct = findColumn(row, '户号');
+          const name = findColumn(row, '户名');
+          return acct && name && acct.trim() !== '';
+        });
         const errors: string[] = [];
         let imported = 0;
         const batchSize = 50;
 
         for (let i = 0; i < rows.length; i += batchSize) {
           const batch = rows.slice(i, i + batchSize).map((row) => ({
-            account_number: (row['户号'] || '').trim(),
-            enterprise_name: (row['户名'] || '').trim(),
-            address: (row['用电地址'] || '').trim(),
-            industry_category: (row['行业分类'] || '').trim(),
-            composite_score: parseFloat(row['综合评分']) || 0,
-            probability_level: (row['概率等级'] || '高').trim(),
-            match_dimension_details: parseMatchDetails(row['匹配维度详情'] || ''),
+            account_number: findColumn(row, '户号').trim(),
+            enterprise_name: findColumn(row, '户名').trim(),
+            address: findColumn(row, '用电地址').trim(),
+            industry_category: findColumn(row, '行业分类').trim(),
+            composite_score: parseFloat(findColumn(row, '综合评分')) || 0,
+            probability_level: (findColumn(row, '概率等级') || '高').trim(),
+            match_dimension_details: parseMatchDetails(findColumn(row, '匹配维度详情')),
             geocoding_status: 'pending',
             detection_status: 'pending',
           }));
