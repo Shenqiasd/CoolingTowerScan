@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
-import { X, Upload, Loader2, Image as ImageIcon, ThermometerSun, Building2, Gauge, Cpu, PlugZap, Save, Radar, Target } from 'lucide-react';
+import { X, Upload, Loader2, Image as ImageIcon, ThermometerSun, Building2, Gauge, Cpu, PlugZap, Save, Radar, Target, Maximize2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { calculateHVAC } from '../utils/hvacCalculator';
 import type { Enterprise, DetectionResult } from '../types/enterprise';
+import ImageLightbox from './ImageLightbox';
 
 interface EnterpriseDetailProps {
   enterprise: Enterprise;
@@ -29,8 +30,14 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
   const [uploading, setUploading] = useState(false);
   const [towerCount, setTowerCount] = useState(enterprise.cooling_tower_count);
   const [saving, setSaving] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const originalRef = useRef<HTMLInputElement>(null);
   const annotatedRef = useRef<HTMLInputElement>(null);
+
+  const lightboxImages = [
+    enterprise.original_image_url ? { url: enterprise.original_image_url, label: '原始卫星图' } : null,
+    enterprise.annotated_image_url ? { url: enterprise.annotated_image_url, label: '识别标注图' } : null,
+  ].filter(Boolean) as { url: string; label: string }[];
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>, type: 'original' | 'annotated') {
     const file = e.target.files?.[0];
@@ -138,11 +145,22 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
             <div className="space-y-1.5">
               <p className="text-[10px] text-slate-500">原始卫星图</p>
               {enterprise.original_image_url ? (
-                <img
-                  src={enterprise.original_image_url}
-                  alt="原始图"
-                  className="w-full aspect-square object-cover rounded-lg border border-slate-700/40"
-                />
+                <div
+                  className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
+                    border border-slate-700/40 hover:border-cyan-500/50 transition-all"
+                  onClick={() => setLightboxIndex(0)}
+                >
+                  <img
+                    src={enterprise.original_image_url}
+                    alt="原始图"
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
+                    flex items-center justify-center">
+                    <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100
+                      transition-opacity drop-shadow-lg" />
+                  </div>
+                </div>
               ) : (
                 <button
                   onClick={() => originalRef.current?.click()}
@@ -173,11 +191,25 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
             <div className="space-y-1.5">
               <p className="text-[10px] text-slate-500">识别标注图</p>
               {enterprise.annotated_image_url ? (
-                <img
-                  src={enterprise.annotated_image_url}
-                  alt="标注图"
-                  className="w-full aspect-square object-cover rounded-lg border border-slate-700/40"
-                />
+                <div
+                  className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
+                    border border-slate-700/40 hover:border-emerald-500/50 transition-all"
+                  onClick={() => {
+                    const idx = enterprise.original_image_url ? 1 : 0;
+                    setLightboxIndex(idx);
+                  }}
+                >
+                  <img
+                    src={enterprise.annotated_image_url}
+                    alt="标注图"
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
+                    flex items-center justify-center">
+                    <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100
+                      transition-opacity drop-shadow-lg" />
+                  </div>
+                </div>
               ) : (
                 <button
                   onClick={() => annotatedRef.current?.click()}
@@ -206,6 +238,14 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
             </div>
           </div>
         </div>
+
+        {lightboxIndex !== null && lightboxImages.length > 0 && (
+          <ImageLightbox
+            images={lightboxImages}
+            initialIndex={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+          />
+        )}
 
         <div className="space-y-2">
           <p className="text-xs font-medium text-slate-300">识别结果</p>
