@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { X, Upload, Loader2, Image as ImageIcon, ThermometerSun, Building2, Gauge, Cpu, PlugZap, Save, Radar, Target, Maximize2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { X, Upload, Loader2, Image as ImageIcon, ThermometerSun, Building2, Gauge, Cpu, PlugZap, Save, Radar, Target, Maximize2, MapPin, Tag, Star, BarChart3 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { calculateHVAC } from '../utils/hvacCalculator';
 import type { Enterprise, DetectionResult } from '../types/enterprise';
@@ -22,8 +22,8 @@ const HVAC_FIELDS = [
   { key: 'chiller_count', label: '主机台数', unit: '台', icon: Cpu },
   { key: 'single_unit_capacity_rt', label: '单机容量', unit: 'RT/台', icon: Cpu },
   { key: 'single_unit_rated_power_kw', label: '单机额定功率', unit: 'kW/台', icon: PlugZap },
-  { key: 'cooling_station_rated_power_kw', label: '制冷站额定功率', unit: 'kW', icon: PlugZap },
-  { key: 'cooling_station_rated_power_mw', label: '制冷站额定功率', unit: 'MW', icon: PlugZap },
+  { key: 'cooling_station_rated_power_kw', label: '制冷站额定功率(kW)', unit: 'kW', icon: PlugZap },
+  { key: 'cooling_station_rated_power_mw', label: '制冷站额定功率(MW)', unit: 'MW', icon: PlugZap },
 ] as const;
 
 export default function EnterpriseDetail({ enterprise, detectionResults, detectionsLoading, onClose, onUpdate }: EnterpriseDetailProps) {
@@ -33,6 +33,14 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const originalRef = useRef<HTMLInputElement>(null);
   const annotatedRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const lightboxImages = [
     enterprise.original_image_url ? { url: enterprise.original_image_url, label: '原始卫星图' } : null,
@@ -83,299 +91,341 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
     setSaving(false);
   }
 
-  return (
-    <div className="bg-slate-800/80 backdrop-blur-sm border border-slate-700/40 rounded-xl overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/40">
-        <h3 className="text-sm font-semibold text-white truncate flex-1">
-          {enterprise.enterprise_name}
-        </h3>
-        <button
-          onClick={onClose}
-          className="w-6 h-6 rounded-md hover:bg-slate-700/50 flex items-center justify-center transition-colors"
-        >
-          <X className="w-4 h-4 text-slate-400" />
-        </button>
-      </div>
+  const scoreColor = enterprise.composite_score >= 25
+    ? 'text-emerald-400'
+    : enterprise.composite_score >= 15
+    ? 'text-cyan-400'
+    : enterprise.composite_score > 0
+    ? 'text-amber-400'
+    : 'text-slate-500';
 
-      <div className="p-4 space-y-4 max-h-[calc(100vh-400px)] overflow-y-auto custom-scrollbar">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-          <div>
-            <span className="text-slate-500">行业分类</span>
-            <p className="text-white">{enterprise.industry_category}</p>
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+
+      <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-slate-700/50 flex-shrink-0">
+          <div className="flex-1 min-w-0 pr-4">
+            <h2 className="text-lg font-semibold text-white leading-tight truncate">
+              {enterprise.enterprise_name}
+            </h2>
+            <div className="flex items-center gap-1.5 mt-1 text-xs text-slate-400">
+              <MapPin className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{enterprise.address}</span>
+            </div>
           </div>
-          <div className="col-span-2">
-            <span className="text-slate-500">用电地址</span>
-            <p className="text-white">{enterprise.address}</p>
-          </div>
-          <div>
-            <span className="text-slate-500">综合评分</span>
-            <p className="text-cyan-400 font-medium">{enterprise.composite_score}</p>
-          </div>
-          <div>
-            <span className="text-slate-500">概率等级</span>
-            <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium ${
+
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${
               enterprise.probability_level === '高'
-                ? 'bg-blue-500/20 text-blue-400'
-                : 'bg-amber-500/20 text-amber-400'
+                ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30'
+                : 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30'
             }`}>
               {enterprise.probability_level}概率
             </span>
-          </div>
-          {enterprise.longitude && (
-            <>
-              <div>
-                <span className="text-slate-500">经度</span>
-                <p className="text-white">{enterprise.longitude.toFixed(6)}</p>
-              </div>
-              <div>
-                <span className="text-slate-500">纬度</span>
-                <p className="text-white">{enterprise.latitude?.toFixed(6)}</p>
-              </div>
-            </>
-          )}
-        </div>
 
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-slate-300">图片对比</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <p className="text-[10px] text-slate-500">原始卫星图</p>
-              {enterprise.original_image_url ? (
-                <div
-                  className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
-                    border border-slate-700/40 hover:border-cyan-500/50 transition-all"
-                  onClick={() => setLightboxIndex(0)}
-                >
-                  <img
-                    src={enterprise.original_image_url}
-                    alt="原始图"
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
-                    flex items-center justify-center">
-                    <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100
-                      transition-opacity drop-shadow-lg" />
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => originalRef.current?.click()}
-                  disabled={uploading}
-                  className="w-full aspect-square rounded-lg border border-dashed border-slate-600/50
-                    flex flex-col items-center justify-center gap-1 hover:border-cyan-500/50
-                    hover:bg-cyan-500/5 transition-all"
-                >
-                  {uploading ? (
-                    <Loader2 className="w-5 h-5 text-slate-500 animate-spin" />
-                  ) : (
-                    <>
-                      <ImageIcon className="w-5 h-5 text-slate-500" />
-                      <span className="text-[10px] text-slate-500">上传原始图</span>
-                    </>
-                  )}
-                </button>
-              )}
-              <input
-                ref={originalRef}
-                type="file"
-                accept="image/*"
-                onChange={(e) => handleImageUpload(e, 'original')}
-                className="hidden"
-              />
-            </div>
+            {enterprise.composite_score > 0 && (
+              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 ring-1 ring-slate-700/50 ${scoreColor}`}>
+                <Star className="w-3 h-3" />
+                {enterprise.composite_score}分
+              </span>
+            )}
 
-            <div className="space-y-1.5">
-              <p className="text-[10px] text-slate-500">识别标注图</p>
-              {enterprise.annotated_image_url ? (
-                <div
-                  className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
-                    border border-slate-700/40 hover:border-emerald-500/50 transition-all"
-                  onClick={() => {
-                    const idx = enterprise.original_image_url ? 1 : 0;
-                    setLightboxIndex(idx);
-                  }}
-                >
-                  <img
-                    src={enterprise.annotated_image_url}
-                    alt="标注图"
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
-                    flex items-center justify-center">
-                    <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100
-                      transition-opacity drop-shadow-lg" />
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => annotatedRef.current?.click()}
-                  disabled={uploading}
-                  className="w-full aspect-square rounded-lg border border-dashed border-slate-600/50
-                    flex flex-col items-center justify-center gap-1 hover:border-emerald-500/50
-                    hover:bg-emerald-500/5 transition-all"
-                >
-                  {uploading ? (
-                    <Loader2 className="w-5 h-5 text-slate-500 animate-spin" />
-                  ) : (
-                    <>
-                      <Upload className="w-5 h-5 text-slate-500" />
-                      <span className="text-[10px] text-slate-500">上传标注图</span>
-                    </>
-                  )}
-                </button>
-              )}
-              <input
-                ref={annotatedRef}
-                type="file"
-                accept="image/*"
-                onChange={(e) => handleImageUpload(e, 'annotated')}
-                className="hidden"
-              />
-            </div>
-          </div>
-        </div>
-
-        {lightboxIndex !== null && lightboxImages.length > 0 && (
-          <ImageLightbox
-            images={lightboxImages}
-            initialIndex={lightboxIndex}
-            onClose={() => setLightboxIndex(null)}
-          />
-        )}
-
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-slate-300">识别结果</p>
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-slate-400">冷却塔数量:</label>
-            <input
-              type="number"
-              min={0}
-              max={50}
-              value={towerCount}
-              onChange={(e) => setTowerCount(parseInt(e.target.value) || 0)}
-              className="w-20 px-2 py-1 bg-slate-900/50 border border-slate-700/40 rounded-md
-                text-sm text-white text-center focus:outline-none focus:border-cyan-500/50"
-            />
             <button
-              onClick={handleSaveDetection}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-cyan-600/20 text-cyan-400
-                border border-cyan-500/30 rounded-lg hover:bg-cyan-600/30 transition-all
-                disabled:opacity-50"
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors"
             >
-              {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-              保存并计算
+              <X className="w-4 h-4 text-slate-400" />
             </button>
           </div>
         </div>
 
-        {detectionResults.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Radar className="w-3.5 h-3.5 text-teal-400" />
-              <p className="text-xs font-medium text-slate-300">AI检测结果</p>
-              <span className="text-[10px] text-slate-500">
-                ({detectionResults.length} 个目标)
-              </span>
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          <div className="p-6 grid grid-cols-2 gap-6">
+
+            <div className="space-y-5">
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700/40 p-4 space-y-3">
+                <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">基本信息</p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <Tag className="w-3 h-3 text-slate-500" />
+                      <span className="text-xs text-slate-500">行业分类</span>
+                    </div>
+                    <p className="text-white font-medium">{enterprise.industry_category || '-'}</p>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <Star className="w-3 h-3 text-slate-500" />
+                      <span className="text-xs text-slate-500">综合评分</span>
+                    </div>
+                    <p className={`font-semibold text-lg ${scoreColor}`}>
+                      {enterprise.composite_score > 0 ? enterprise.composite_score : '-'}
+                    </p>
+                  </div>
+                  {enterprise.longitude && (
+                    <>
+                      <div>
+                        <span className="text-xs text-slate-500 block mb-0.5">经度</span>
+                        <p className="text-white tabular-nums">{enterprise.longitude.toFixed(6)}</p>
+                      </div>
+                      <div>
+                        <span className="text-xs text-slate-500 block mb-0.5">纬度</span>
+                        <p className="text-white tabular-nums">{enterprise.latitude?.toFixed(6)}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700/40 p-4 space-y-3">
+                <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">卫星图像</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-slate-500">原始卫星图</p>
+                    {enterprise.original_image_url ? (
+                      <div
+                        className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
+                          border border-slate-700/40 hover:border-cyan-500/50 transition-all"
+                        onClick={() => setLightboxIndex(0)}
+                      >
+                        <img
+                          src={enterprise.original_image_url}
+                          alt="原始图"
+                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
+                          flex items-center justify-center">
+                          <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100
+                            transition-opacity drop-shadow-lg" />
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => originalRef.current?.click()}
+                        disabled={uploading}
+                        className="w-full aspect-square rounded-lg border border-dashed border-slate-600/50
+                          flex flex-col items-center justify-center gap-2 hover:border-cyan-500/50
+                          hover:bg-cyan-500/5 transition-all"
+                      >
+                        {uploading ? (
+                          <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
+                        ) : (
+                          <>
+                            <ImageIcon className="w-6 h-6 text-slate-500" />
+                            <span className="text-xs text-slate-500">上传原始图</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                    <input ref={originalRef} type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'original')} className="hidden" />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-slate-500">识别标注图</p>
+                    {enterprise.annotated_image_url ? (
+                      <div
+                        className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
+                          border border-slate-700/40 hover:border-emerald-500/50 transition-all"
+                        onClick={() => {
+                          const idx = enterprise.original_image_url ? 1 : 0;
+                          setLightboxIndex(idx);
+                        }}
+                      >
+                        <img
+                          src={enterprise.annotated_image_url}
+                          alt="标注图"
+                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
+                          flex items-center justify-center">
+                          <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100
+                            transition-opacity drop-shadow-lg" />
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => annotatedRef.current?.click()}
+                        disabled={uploading}
+                        className="w-full aspect-square rounded-lg border border-dashed border-slate-600/50
+                          flex flex-col items-center justify-center gap-2 hover:border-emerald-500/50
+                          hover:bg-emerald-500/5 transition-all"
+                      >
+                        {uploading ? (
+                          <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
+                        ) : (
+                          <>
+                            <Upload className="w-6 h-6 text-slate-500" />
+                            <span className="text-xs text-slate-500">上传标注图</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                    <input ref={annotatedRef} type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'annotated')} className="hidden" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700/40 p-4 space-y-3">
+                <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">识别结果录入</p>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-slate-400">冷却塔数量</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    value={towerCount}
+                    onChange={(e) => setTowerCount(parseInt(e.target.value) || 0)}
+                    className="w-24 px-3 py-1.5 bg-slate-900/50 border border-slate-700/40 rounded-lg
+                      text-sm text-white text-center focus:outline-none focus:border-cyan-500/50"
+                  />
+                  <button
+                    onClick={handleSaveDetection}
+                    disabled={saving}
+                    className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-cyan-600/20 text-cyan-400
+                      border border-cyan-500/30 rounded-lg hover:bg-cyan-600/30 transition-all
+                      disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    保存并计算
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {enterprise.detection_confidence > 0 && (
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-slate-500">最高置信度:</span>
-                <div className="flex-1 h-1.5 bg-slate-700/50 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      enterprise.detection_confidence >= 0.7 ? 'bg-emerald-500' :
-                      enterprise.detection_confidence >= 0.4 ? 'bg-amber-500' : 'bg-slate-500'
-                    }`}
-                    style={{ width: `${enterprise.detection_confidence * 100}%` }}
-                  />
-                </div>
-                <span className={`font-medium tabular-nums ${
-                  enterprise.detection_confidence >= 0.7 ? 'text-emerald-400' :
-                  enterprise.detection_confidence >= 0.4 ? 'text-amber-400' : 'text-slate-400'
-                }`}>
-                  {(enterprise.detection_confidence * 100).toFixed(0)}%
-                </span>
-              </div>
-            )}
-
-            <div className="space-y-1.5 max-h-[200px] overflow-y-auto custom-scrollbar">
-              {detectionsLoading ? (
-                <div className="flex items-center justify-center py-3">
-                  <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
-                </div>
-              ) : (
-                detectionResults.map((det) => (
-                  <div
-                    key={det.id}
-                    className="bg-slate-900/40 border border-slate-700/30 rounded-lg px-3 py-2
-                      hover:border-slate-600/40 transition-all"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Target className="w-3 h-3 text-teal-500" />
-                        <span className="text-[11px] font-medium text-white">
-                          #{det.detection_id + 1}
-                        </span>
-                        <span className="text-[10px] text-slate-500">{det.class_name}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-12 h-1 bg-slate-700/50 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${
-                              det.confidence >= 0.7 ? 'bg-emerald-500' :
-                              det.confidence >= 0.4 ? 'bg-amber-500' : 'bg-slate-500'
-                            }`}
-                            style={{ width: `${det.confidence * 100}%` }}
-                          />
-                        </div>
-                        <span className={`text-[10px] font-medium tabular-nums ${
-                          det.confidence >= 0.7 ? 'text-emerald-400' :
-                          det.confidence >= 0.4 ? 'text-amber-400' : 'text-slate-400'
-                        }`}>
-                          {(det.confidence * 100).toFixed(0)}%
-                        </span>
-                      </div>
+            <div className="space-y-5">
+              {detectionResults.length > 0 && (
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700/40 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Radar className="w-4 h-4 text-teal-400" />
+                      <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">AI检测结果</p>
                     </div>
-                    <div className="flex gap-3 mt-1 text-[10px] text-slate-500">
-                      <span>尺寸: {Math.round(det.bbox_width)}x{Math.round(det.bbox_height)}</span>
-                      <span>面积: {Math.round(det.bbox_area)}px</span>
-                    </div>
+                    <span className="text-xs text-slate-500 bg-slate-900/50 px-2 py-0.5 rounded-full">
+                      {detectionResults.length} 个目标
+                    </span>
                   </div>
-                ))
+
+                  {enterprise.detection_confidence > 0 && (
+                    <div className="flex items-center gap-3 text-sm">
+                      <span className="text-slate-500 text-xs">最高置信度</span>
+                      <div className="flex-1 h-2 bg-slate-700/50 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            enterprise.detection_confidence >= 0.7 ? 'bg-emerald-500' :
+                            enterprise.detection_confidence >= 0.4 ? 'bg-amber-500' : 'bg-slate-500'
+                          }`}
+                          style={{ width: `${enterprise.detection_confidence * 100}%` }}
+                        />
+                      </div>
+                      <span className={`text-sm font-semibold tabular-nums ${
+                        enterprise.detection_confidence >= 0.7 ? 'text-emerald-400' :
+                        enterprise.detection_confidence >= 0.4 ? 'text-amber-400' : 'text-slate-400'
+                      }`}>
+                        {(enterprise.detection_confidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="space-y-2 max-h-[180px] overflow-y-auto custom-scrollbar">
+                    {detectionsLoading ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
+                      </div>
+                    ) : (
+                      detectionResults.map((det) => (
+                        <div
+                          key={det.id}
+                          className="bg-slate-900/40 border border-slate-700/30 rounded-lg px-3 py-2
+                            hover:border-slate-600/40 transition-all"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Target className="w-3 h-3 text-teal-500" />
+                              <span className="text-sm font-medium text-white">#{det.detection_id + 1}</span>
+                              <span className="text-xs text-slate-500">{det.class_name}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-16 h-1.5 bg-slate-700/50 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    det.confidence >= 0.7 ? 'bg-emerald-500' :
+                                    det.confidence >= 0.4 ? 'bg-amber-500' : 'bg-slate-500'
+                                  }`}
+                                  style={{ width: `${det.confidence * 100}%` }}
+                                />
+                              </div>
+                              <span className={`text-xs font-medium tabular-nums ${
+                                det.confidence >= 0.7 ? 'text-emerald-400' :
+                                det.confidence >= 0.4 ? 'text-amber-400' : 'text-slate-400'
+                              }`}>
+                                {(det.confidence * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex gap-4 mt-1 text-xs text-slate-500">
+                            <span>尺寸: {Math.round(det.bbox_width)}x{Math.round(det.bbox_height)}</span>
+                            <span>面积: {Math.round(det.bbox_area)}px</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {enterprise.has_cooling_tower && (
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700/40 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-cyan-400" />
+                    <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">暖通估算指标</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {HVAC_FIELDS.map((field) => {
+                      const value = enterprise[field.key as keyof Enterprise] as number;
+                      return (
+                        <div
+                          key={field.key}
+                          className="bg-slate-900/40 border border-slate-700/30 rounded-lg p-3
+                            hover:border-slate-600/40 transition-all"
+                        >
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <field.icon className="w-3 h-3 text-slate-500" />
+                            <span className="text-[11px] text-slate-400 leading-tight">{field.label}</span>
+                          </div>
+                          <p className="text-base font-semibold text-white">
+                            {typeof value === 'number' && value > 0 ? value.toLocaleString() : '0'}
+                            <span className="text-xs text-slate-500 ml-1 font-normal">{field.unit}</span>
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {!enterprise.has_cooling_tower && detectionResults.length === 0 && (
+                <div className="bg-slate-800/30 rounded-xl border border-slate-700/30 p-8 flex flex-col items-center justify-center text-center gap-3">
+                  <Radar className="w-10 h-10 text-slate-600" />
+                  <p className="text-sm text-slate-500">暂无检测数据</p>
+                  <p className="text-xs text-slate-600">上传卫星图后进行AI识别，或手动输入冷却塔数量</p>
+                </div>
               )}
             </div>
           </div>
-        )}
-
-        {enterprise.has_cooling_tower && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-slate-300">暖通估算指标</p>
-            <div className="grid grid-cols-2 gap-2">
-              {HVAC_FIELDS.map((field) => {
-                const value = enterprise[field.key as keyof Enterprise] as number;
-                return (
-                  <div
-                    key={field.key}
-                    className="bg-slate-900/40 border border-slate-700/30 rounded-lg p-2.5
-                      hover:border-slate-600/40 transition-all"
-                  >
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <field.icon className="w-3 h-3 text-slate-500" />
-                      <span className="text-[10px] text-slate-400">{field.label}</span>
-                    </div>
-                    <p className="text-sm font-semibold text-white">
-                      {typeof value === 'number' ? value.toLocaleString() : '0'}
-                      <span className="text-[10px] text-slate-500 ml-1">{field.unit}</span>
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        </div>
       </div>
+
+      {lightboxIndex !== null && lightboxImages.length > 0 && (
+        <ImageLightbox
+          images={lightboxImages}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
     </div>
   );
 }

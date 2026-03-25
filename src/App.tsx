@@ -228,67 +228,49 @@ function App() {
 
         <div className="flex-1 min-h-0 flex gap-3">
           {activeTab === 'map' ? (
-            <>
-              <div className="flex-1 min-w-0">
-                <Suspense fallback={
-                  <div className="h-full w-full rounded-xl border border-slate-700/40 flex items-center justify-center bg-slate-900/50">
-                    <div className="w-8 h-8 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin" />
-                  </div>
-                }>
-                  <MapView
-                    markers={markers}
-                    onSelect={handleSelectFromMap}
-                    flyTo={flyTo}
-                  />
-                </Suspense>
-              </div>
-
-              {selectedEnterprise && (
-                <div className="w-[380px] flex-shrink-0 overflow-y-auto custom-scrollbar">
-                  <EnterpriseDetail
-                    enterprise={selectedEnterprise}
-                    detectionResults={detectionResults}
-                    detectionsLoading={detectionsLoading}
-                    onClose={handleCloseDetail}
-                    onUpdate={handleUpdate}
-                  />
+            <div className="flex-1 min-w-0">
+              <Suspense fallback={
+                <div className="h-full w-full rounded-xl border border-slate-700/40 flex items-center justify-center bg-slate-900/50">
+                  <div className="w-8 h-8 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin" />
                 </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div className="flex-1 min-w-0 bg-slate-800/30 border border-slate-700/30 rounded-xl overflow-hidden">
-                <EnterpriseList
-                  enterprises={enterprises}
-                  selectedId={selectedEnterprise?.id || null}
-                  onSelect={handleSelectFromList}
-                  loading={loading}
-                  page={page}
-                  pageSize={pageSize}
-                  totalPages={totalPages}
-                  totalCount={totalCount}
-                  onPageChange={goToPage}
-                  onPageSizeChange={changePageSize}
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={setSort}
+              }>
+                <MapView
+                  markers={markers}
+                  onSelect={handleSelectFromMap}
+                  flyTo={flyTo}
                 />
-              </div>
-
-              {selectedEnterprise && (
-                <div className="w-[380px] flex-shrink-0 overflow-y-auto custom-scrollbar">
-                  <EnterpriseDetail
-                    enterprise={selectedEnterprise}
-                    detectionResults={detectionResults}
-                    detectionsLoading={detectionsLoading}
-                    onClose={handleCloseDetail}
-                    onUpdate={handleUpdate}
-                  />
-                </div>
-              )}
-            </>
+              </Suspense>
+            </div>
+          ) : (
+            <div className="flex-1 min-w-0 bg-slate-800/30 border border-slate-700/30 rounded-xl overflow-hidden">
+              <EnterpriseList
+                enterprises={enterprises}
+                selectedId={selectedEnterprise?.id || null}
+                onSelect={handleSelectFromList}
+                loading={loading}
+                page={page}
+                pageSize={pageSize}
+                totalPages={totalPages}
+                totalCount={totalCount}
+                onPageChange={goToPage}
+                onPageSizeChange={changePageSize}
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSort={setSort}
+              />
+            </div>
           )}
         </div>
+
+        {selectedEnterprise && (
+          <EnterpriseDetail
+            enterprise={selectedEnterprise}
+            detectionResults={detectionResults}
+            detectionsLoading={detectionsLoading}
+            onClose={handleCloseDetail}
+            onUpdate={handleUpdate}
+          />
+        )}
       </div>
     </div>
   );
