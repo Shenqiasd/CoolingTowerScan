@@ -37,7 +37,7 @@ function App() {
   const { stats, loading: statsLoading, refresh: refreshStats } = useStats();
   const { results: detectionResults, loading: detectionsLoading, fetchForEnterprise, clear: clearDetections } = useDetectionResults();
 
-  const [activeTab, setActiveTab] = useState<ViewTab>('map');
+  const [activeTab, setActiveTab] = useState<ViewTab>('list');
   const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | null>(null);
   const [flyTo, setFlyTo] = useState<{ latitude: number; longitude: number } | null>(null);
   const [geocoding, setGeocoding] = useState(false);
@@ -192,17 +192,6 @@ function App() {
         <div className="flex items-center gap-3">
           <div className="flex bg-slate-800/60 border border-slate-700/40 rounded-lg p-0.5">
             <button
-              onClick={() => setActiveTab('map')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                activeTab === 'map'
-                  ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30'
-                  : 'text-slate-400 hover:text-white border border-transparent'
-              }`}
-            >
-              <Map className="w-3.5 h-3.5" />
-              地图视角
-            </button>
-            <button
               onClick={() => setActiveTab('list')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                 activeTab === 'list'
@@ -212,6 +201,17 @@ function App() {
             >
               <List className="w-3.5 h-3.5" />
               列表视角
+            </button>
+            <button
+              onClick={() => setActiveTab('map')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                activeTab === 'map'
+                  ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-white border border-transparent'
+              }`}
+            >
+              <Map className="w-3.5 h-3.5" />
+              地图视角
             </button>
           </div>
 
