@@ -64,8 +64,8 @@ export interface EnterpriseFilters {
 
 export interface StatsData {
   totalEnterprises: number;
-  detectedCount: number;
   confirmedCoolingTower: number;
+  highProbabilityCount: number;
+  mediumProbabilityCount: number;
   totalCoolingCapacityMW: number;
-  detectionRate: number;
 }
