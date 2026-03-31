@@ -18,8 +18,8 @@ export function useStats() {
     const [totalRes, confirmedRes, highRes, mediumRes, capacityRes] = await Promise.all([
       supabase.from('enterprises').select('*', { count: 'exact', head: true }),
       supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('has_cooling_tower', true),
-      supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '高'),
-      supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '中'),
+      supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '高概率'),
+      supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '中等概率'),
       supabase.from('enterprises').select('cooling_station_rated_power_mw').eq('has_cooling_tower', true),
     ]);
 
