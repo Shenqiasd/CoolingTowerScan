@@ -33,7 +33,6 @@ const COLUMNS: ColumnDef[] = [
   { key: 'major_category', label: '大类', width: 'w-[76px]', sortable: true },
   { key: 'sub_category', label: '细分类型', width: 'w-[90px]', sortable: true },
   { key: 'probability_level', label: '概率', width: 'w-[52px]', sortable: true },
-  { key: 'composite_score', label: '评分', width: 'w-[60px]', sortable: true },
   { key: 'detection_confidence', label: '置信度', width: 'w-[64px]', sortable: true },
   { key: 'cooling_tower_count', label: '冷却塔', width: 'w-[60px]', unit: '台', sortable: true },
   { key: 'estimated_building_area', label: '建筑面积', width: 'w-[90px]', unit: 'm\u00B2', sortable: true },
@@ -283,10 +282,7 @@ export default function EnterpriseList({
                       {enterprise.probability_level}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-right text-slate-300 tabular-nums w-[60px]">
-                    {formatValue(enterprise.composite_score, 'composite_score')}
-                  </td>
-                  {COLUMNS.slice(5).map((col) => {
+                  {COLUMNS.slice(4).map((col) => {
                     const val = enterprise[col.key as keyof Enterprise];
                     const cellColor = getCellColor(col.key, val);
                     return (

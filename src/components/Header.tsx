@@ -3,11 +3,14 @@ import { Zap, Upload, Download, MapPin, Loader2, Building2, ScanEye, Thermometer
 import { importCsvFile } from '../utils/csvImporter';
 import { importDetectionCsv } from '../utils/detectionImporter';
 import * as XLSX from 'xlsx';
-import type { Enterprise } from '../types/enterprise';
+import { supabase } from '../lib/supabase';
+import type { Enterprise, EnterpriseFilters } from '../types/enterprise';
 import type { StatsData } from '../types/enterprise';
 
 interface HeaderProps {
   enterprises: Enterprise[];
+  filters: EnterpriseFilters;
+  totalCount: number;
   stats: StatsData;
   statsLoading: boolean;
   onDataImported: () => void;
@@ -58,6 +61,8 @@ const kpis = [
 
 export default function Header({
   enterprises,
+  filters,
+  totalCount,
   stats,
   statsLoading,
   onDataImported,
@@ -66,6 +71,7 @@ export default function Header({
   geocodeProgress,
 }: HeaderProps) {
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [importProgress, setImportProgress] = useState('');
   const [detectImporting, setDetectImporting] = useState(false);
   const [detectProgress, setDetectProgress] = useState('');
@@ -100,28 +106,61 @@ export default function Header({
     }
   }
 
-  function handleExport() {
-    const exportData = enterprises.map((e) => ({
-      '户号': e.account_number,
-      '户名': e.enterprise_name,
-      '用电地址': e.address,
-      '行业分类': e.industry_category,
-      '综合评分': e.composite_score,
-      '概率等级': e.probability_level,
-      '经度': e.longitude || '',
-      '纬度': e.latitude || '',
-      '有冷却塔': e.has_cooling_tower ? '是' : '否',
-      '冷却塔数量': e.cooling_tower_count,
-      '识别状态': e.detection_status === 'detected' ? '已识别' : e.detection_status === 'no_result' ? '无结果' : '待识别',
-      '估算建筑面积(m2)': e.estimated_building_area,
-      '总制冷量(RT)': e.total_cooling_capacity_rt,
-      '制冷站额定功率(kW)': e.cooling_station_rated_power_kw,
-    }));
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const BATCH = 1000;
+      const allRows: Enterprise[] = [];
+      let from = 0;
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '企业清单');
-    XLSX.writeFile(wb, `浦东新区中央空调识别_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      while (true) {
+        let query = supabase.from('enterprises').select('*').range(from, from + BATCH - 1);
+
+        if (filters.probabilityLevel) query = query.eq('probability_level', filters.probabilityLevel);
+        if (filters.detectionStatus) query = query.eq('detection_status', filters.detectionStatus);
+        if (filters.industryCategory) query = query.ilike('industry_category', `%${filters.industryCategory}%`);
+        if (filters.majorCategory) query = query.eq('major_category', filters.majorCategory);
+        if (filters.subCategory) query = query.eq('sub_category', filters.subCategory);
+        if (filters.searchText) {
+          query = query.or(
+            `enterprise_name.ilike.%${filters.searchText}%,address.ilike.%${filters.searchText}%,account_number.ilike.%${filters.searchText}%`
+          );
+        }
+        if (filters.hasCoolingTower === 'yes') query = query.eq('has_cooling_tower', true);
+        else if (filters.hasCoolingTower === 'no') query = query.eq('has_cooling_tower', false);
+
+        const { data, error } = await query;
+        if (error || !data) break;
+        allRows.push(...(data as Enterprise[]));
+        if (data.length < BATCH) break;
+        from += BATCH;
+      }
+
+      const exportData = allRows.map((e) => ({
+        '户号': e.account_number,
+        '户名': e.enterprise_name,
+        '用电地址': e.address,
+        '行业分类': e.industry_category,
+        '大类': e.major_category,
+        '细分类型': e.sub_category,
+        '概率等级': e.probability_level,
+        '经度': e.longitude || '',
+        '纬度': e.latitude || '',
+        '有冷却塔': e.has_cooling_tower ? '是' : '否',
+        '冷却塔数量': e.cooling_tower_count,
+        '识别状态': e.detection_status === 'detected' ? '已识别' : e.detection_status === 'no_result' ? '无结果' : '待识别',
+        '估算建筑面积(m2)': e.estimated_building_area,
+        '总制冷量(RT)': e.total_cooling_capacity_rt,
+        '制冷站额定功率(kW)': e.cooling_station_rated_power_kw,
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '企业清单');
+      XLSX.writeFile(wb, `浦东新区中央空调识别_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleDetectionImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -253,13 +292,13 @@ export default function Header({
 
           <button
             onClick={handleExport}
-            disabled={enterprises.length === 0}
+            disabled={totalCount === 0 || exporting}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-slate-700/50 text-slate-200
               border border-slate-600/50 rounded-md hover:bg-slate-700 transition-all
               disabled:opacity-50 disabled:cursor-not-allowed"
-            title="导出Excel"
+            title={`导出全量数据 (${totalCount.toLocaleString()}条)`}
           >
-            <Download className="w-3.5 h-3.5" />
+            {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             导出
           </button>
         </div>

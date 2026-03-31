@@ -180,6 +180,8 @@ function App() {
     <div className="h-screen flex flex-col bg-slate-950 text-white overflow-hidden">
       <Header
         enterprises={enterprises}
+        filters={filters}
+        totalCount={totalCount}
         stats={stats}
         statsLoading={statsLoading}
         onDataImported={handleDataImported}
