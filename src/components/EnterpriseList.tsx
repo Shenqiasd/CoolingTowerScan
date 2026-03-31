@@ -30,6 +30,8 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: 'enterprise_name', label: '企业名称', width: 'min-w-[200px] max-w-[260px]', sticky: true, sortable: true },
+  { key: 'major_category', label: '大类', width: 'w-[76px]', sortable: true },
+  { key: 'sub_category', label: '细分类型', width: 'w-[90px]', sortable: true },
   { key: 'probability_level', label: '概率', width: 'w-[52px]', sortable: true },
   { key: 'composite_score', label: '评分', width: 'w-[60px]', sortable: true },
   { key: 'detection_confidence', label: '置信度', width: 'w-[64px]', sortable: true },
@@ -258,6 +260,20 @@ export default function EnterpriseList({
                       </span>
                     </div>
                   </td>
+                  <td className="px-3 py-2.5 text-right w-[76px]">
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap ${
+                      enterprise.major_category === '工业企业'
+                        ? 'bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/20'
+                        : 'bg-teal-500/15 text-teal-400 ring-1 ring-teal-500/20'
+                    }`}>
+                      {enterprise.major_category || '-'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right w-[90px]">
+                    <span className="text-[10px] text-slate-400 truncate block text-right">
+                      {enterprise.sub_category || '-'}
+                    </span>
+                  </td>
                   <td className="px-3 py-2.5 text-right">
                     <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
                       enterprise.probability_level === '高'
@@ -270,7 +286,7 @@ export default function EnterpriseList({
                   <td className="px-3 py-2.5 text-right text-slate-300 tabular-nums w-[60px]">
                     {formatValue(enterprise.composite_score, 'composite_score')}
                   </td>
-                  {COLUMNS.slice(3).map((col) => {
+                  {COLUMNS.slice(5).map((col) => {
                     const val = enterprise[col.key as keyof Enterprise];
                     const cellColor = getCellColor(col.key, val);
                     return (

@@ -14,6 +14,8 @@ export function useEnterprises() {
     probabilityLevel: '',
     detectionStatus: '',
     industryCategory: '',
+    majorCategory: '',
+    subCategory: '',
     searchText: '',
     hasCoolingTower: '',
   });
@@ -46,6 +48,12 @@ export function useEnterprises() {
     }
     if (currentFilters.industryCategory) {
       query = query.ilike('industry_category', `%${currentFilters.industryCategory}%`);
+    }
+    if (currentFilters.majorCategory) {
+      query = query.eq('major_category', currentFilters.majorCategory);
+    }
+    if (currentFilters.subCategory) {
+      query = query.eq('sub_category', currentFilters.subCategory);
     }
     if (currentFilters.searchText) {
       query = query.or(

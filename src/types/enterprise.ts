@@ -4,6 +4,8 @@ export interface Enterprise {
   enterprise_name: string;
   address: string;
   industry_category: string;
+  major_category: string;
+  sub_category: string;
   composite_score: number;
   probability_level: string;
   match_dimension_details: Record<string, unknown>;
@@ -54,6 +56,8 @@ export interface EnterpriseFilters {
   probabilityLevel: string;
   detectionStatus: string;
   industryCategory: string;
+  majorCategory: string;
+  subCategory: string;
   searchText: string;
   hasCoolingTower: string;
 }

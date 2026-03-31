@@ -7,9 +7,28 @@ interface FilterBarProps {
   totalCount: number;
 }
 
+const INDUSTRIAL_SUB_CATEGORIES = [
+  '其他制造业', '建筑施工', '物流仓储', '机械装备', '电子电器',
+  '电力能源', '汽车制造', '化工', '医药生物', '包装印刷',
+  '农林牧渔', '冶金金属', '食品饮料', '纺织服装', '建材', '采矿',
+];
+
+const PUBLIC_SUB_CATEGORIES = [
+  '医院', '高等院校', '中学', '小学/幼儿园', '其他教育', '培训机构',
+  '酒店', '商业综合体', '办公楼宇', '零售商场', '批发市场',
+  '金融', '科研机构', '数据中心/IT', '政府机关', '文化场馆',
+  '体育场馆', '文娱', '住宿餐饮', '餐饮', '社会福利', '卫生机构',
+  '公共设施', '交通运输', '商务服务', '社区服务', '住宅小区',
+  '房地产', '国际机构',
+];
+
 export default function FilterBar({ filters, onChange, totalCount }: FilterBarProps) {
   function update(key: keyof EnterpriseFilters, value: string) {
-    onChange({ ...filters, [key]: value });
+    if (key === 'majorCategory') {
+      onChange({ ...filters, majorCategory: value, subCategory: '' });
+    } else {
+      onChange({ ...filters, [key]: value });
+    }
   }
 
   function clearAll() {
@@ -17,6 +36,8 @@ export default function FilterBar({ filters, onChange, totalCount }: FilterBarPr
       probabilityLevel: '',
       detectionStatus: '',
       industryCategory: '',
+      majorCategory: '',
+      subCategory: '',
       searchText: '',
       hasCoolingTower: '',
     });
@@ -24,9 +45,16 @@ export default function FilterBar({ filters, onChange, totalCount }: FilterBarPr
 
   const hasActiveFilters = Object.values(filters).some((v) => v !== '');
 
+  const subCategoryOptions =
+    filters.majorCategory === '工业企业'
+      ? INDUSTRIAL_SUB_CATEGORIES
+      : filters.majorCategory === '公建建筑'
+      ? PUBLIC_SUB_CATEGORIES
+      : [];
+
   return (
-    <div className="flex items-center gap-2">
-      <div className="relative flex-1 max-w-[240px]">
+    <div className="flex items-center gap-2 flex-wrap">
+      <div className="relative flex-1 max-w-[220px]">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
         <input
           type="text"
@@ -37,6 +65,31 @@ export default function FilterBar({ filters, onChange, totalCount }: FilterBarPr
             text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 transition-all"
         />
       </div>
+
+      <select
+        value={filters.majorCategory}
+        onChange={(e) => update('majorCategory', e.target.value)}
+        className="bg-slate-800/50 border border-slate-700/40 rounded-md px-2 py-1.5 text-xs text-white
+          focus:outline-none focus:border-cyan-500/50 transition-all"
+      >
+        <option value="">全部类型</option>
+        <option value="工业企业">工业企业</option>
+        <option value="公建建筑">公建建筑</option>
+      </select>
+
+      {subCategoryOptions.length > 0 && (
+        <select
+          value={filters.subCategory}
+          onChange={(e) => update('subCategory', e.target.value)}
+          className="bg-slate-800/50 border border-slate-700/40 rounded-md px-2 py-1.5 text-xs text-white
+            focus:outline-none focus:border-cyan-500/50 transition-all max-w-[130px]"
+        >
+          <option value="">全部细分</option>
+          {subCategoryOptions.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      )}
 
       <select
         value={filters.probabilityLevel}
