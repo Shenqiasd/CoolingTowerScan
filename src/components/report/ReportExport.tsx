@@ -38,7 +38,6 @@ export default function ReportExport({ stats }: Props) {
       }
 
       const exportData = allRows.map((e) => ({
-        '户号': e.account_number,
         '户名': e.enterprise_name,
         '用电地址': e.address,
         '行业分类': e.industry_category,
@@ -147,7 +146,6 @@ export default function ReportExport({ stats }: Props) {
         <h3 className="text-sm font-semibold text-white mb-3">导出字段说明</h3>
         <div className="grid grid-cols-3 gap-3">
           {[
-            { field: '户号', desc: '电力系统唯一识别号' },
             { field: '户名', desc: '企业注册名称' },
             { field: '用电地址', desc: '企业实际用电地址' },
             { field: '行业分类', desc: '原始行业标签' },

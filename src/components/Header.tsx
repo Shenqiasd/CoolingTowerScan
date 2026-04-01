@@ -156,7 +156,6 @@ export default function Header({
       }
 
       const exportData = allRows.map((e) => ({
-        '户号': e.account_number,
         '户名': e.enterprise_name,
         '用电地址': e.address,
         '行业分类': e.industry_category,
