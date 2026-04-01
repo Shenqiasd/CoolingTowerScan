@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Zap, Upload, Download, MapPin, Loader2, Building2, ScanEye, ThermometerSun, Activity, Radar } from 'lucide-react';
+import { Zap, Upload, Download, MapPin, Loader2, Building2, ScanEye, ThermometerSun, Activity, Radar, MinusCircle } from 'lucide-react';
 import { importCsvFile } from '../utils/csvImporter';
 import { importDetectionCsv } from '../utils/detectionImporter';
 import * as XLSX from 'xlsx';
@@ -54,6 +54,15 @@ const kpis = [
     color: 'text-cyan-400',
     bg: 'bg-cyan-500/10',
     getValue: (s: StatsData) => s.mediumProbabilityCount.toLocaleString(),
+    unit: '家',
+  },
+  {
+    key: 'low',
+    label: '低概率',
+    icon: MinusCircle,
+    color: 'text-slate-400',
+    bg: 'bg-slate-500/10',
+    getValue: (s: StatsData) => s.lowProbabilityCount.toLocaleString(),
     unit: '家',
   },
   {

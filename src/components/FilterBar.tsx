@@ -99,7 +99,8 @@ export default function FilterBar({ filters, onChange, totalCount }: FilterBarPr
       >
         <option value="">全部等级</option>
         <option value="高">高概率</option>
-        <option value="中">中概率</option>
+        <option value="中等">中概率</option>
+        <option value="低">低概率</option>
       </select>
 
       <select

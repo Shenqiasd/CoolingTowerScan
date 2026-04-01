@@ -8,6 +8,7 @@ export function useStats() {
     confirmedCoolingTower: 0,
     highProbabilityCount: 0,
     mediumProbabilityCount: 0,
+    lowProbabilityCount: 0,
     totalCoolingCapacityMW: 0,
   });
   const [loading, setLoading] = useState(true);
@@ -15,11 +16,12 @@ export function useStats() {
   const fetchStats = useCallback(async () => {
     setLoading(true);
 
-    const [totalRes, confirmedRes, highRes, mediumRes, capacityRes] = await Promise.all([
+    const [totalRes, confirmedRes, highRes, mediumRes, lowRes, capacityRes] = await Promise.all([
       supabase.from('enterprises').select('*', { count: 'exact', head: true }),
       supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('has_cooling_tower', true),
       supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '高'),
       supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '中等'),
+      supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '低'),
       supabase.from('enterprises').select('cooling_station_rated_power_mw').eq('has_cooling_tower', true),
     ]);
 
@@ -33,6 +35,7 @@ export function useStats() {
       confirmedCoolingTower: confirmedRes.count || 0,
       highProbabilityCount: highRes.count || 0,
       mediumProbabilityCount: mediumRes.count || 0,
+      lowProbabilityCount: lowRes.count || 0,
       totalCoolingCapacityMW: Math.round(totalMW * 100) / 100,
     });
 

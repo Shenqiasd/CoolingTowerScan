@@ -276,8 +276,10 @@ export default function EnterpriseList({
                   <td className="px-3 py-2.5 text-right">
                     <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
                       enterprise.probability_level === '高'
-                        ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/20'
-                        : 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/20'
+                        ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/20'
+                        : enterprise.probability_level === '中等'
+                        ? 'bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-500/20'
+                        : 'bg-slate-500/20 text-slate-400 ring-1 ring-slate-500/20'
                     }`}>
                       {enterprise.probability_level}
                     </span>

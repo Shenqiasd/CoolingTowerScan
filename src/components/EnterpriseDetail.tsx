@@ -121,8 +121,10 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
           <div className="flex items-center gap-3 flex-shrink-0">
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${
               enterprise.probability_level === '高'
-                ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30'
-                : 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30'
+                ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/30'
+                : enterprise.probability_level === '中等'
+                ? 'bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-500/30'
+                : 'bg-slate-500/20 text-slate-400 ring-1 ring-slate-500/30'
             }`}>
               {enterprise.probability_level}概率
             </span>

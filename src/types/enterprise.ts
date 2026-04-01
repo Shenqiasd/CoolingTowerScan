@@ -67,5 +67,6 @@ export interface StatsData {
   confirmedCoolingTower: number;
   highProbabilityCount: number;
   mediumProbabilityCount: number;
+  lowProbabilityCount: number;
   totalCoolingCapacityMW: number;
 }
