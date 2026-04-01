@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Zap, Upload, Download, MapPin, Loader2, Building2, ScanEye, ThermometerSun, Activity, Radar, MinusCircle } from 'lucide-react';
+import { Zap, Upload, Download, MapPin, Loader2, Building2, ScanEye, ThermometerSun, Activity, Radar, MinusCircle, BarChart2 } from 'lucide-react';
 import { importCsvFile } from '../utils/csvImporter';
 import { importDetectionCsv } from '../utils/detectionImporter';
 import * as XLSX from 'xlsx';
@@ -17,6 +17,7 @@ interface HeaderProps {
   onGeocode: () => void;
   geocoding: boolean;
   geocodeProgress: string;
+  onReport: () => void;
 }
 
 const kpis = [
@@ -86,6 +87,7 @@ export default function Header({
   onGeocode,
   geocoding,
   geocodeProgress,
+  onReport,
 }: HeaderProps) {
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -317,6 +319,16 @@ export default function Header({
           >
             {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             导出
+          </button>
+
+          <button
+            onClick={onReport}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-cyan-600/20 text-cyan-400
+              border border-cyan-500/30 rounded-md hover:bg-cyan-600/30 transition-all"
+            title="查看分析报告"
+          >
+            <BarChart2 className="w-3.5 h-3.5" />
+            报告
           </button>
         </div>
       </div>

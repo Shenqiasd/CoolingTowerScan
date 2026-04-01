@@ -4,6 +4,7 @@ import Header from './components/Header';
 import FilterBar from './components/FilterBar';
 import EnterpriseList from './components/EnterpriseList';
 import EnterpriseDetail from './components/EnterpriseDetail';
+import ReportModal from './components/report/ReportModal';
 import { useEnterprises } from './hooks/useEnterprises';
 import { useMapMarkers } from './hooks/useMapMarkers';
 import { useStats } from './hooks/useStats';
@@ -42,6 +43,7 @@ function App() {
   const [flyTo, setFlyTo] = useState<{ latitude: number; longitude: number } | null>(null);
   const [geocoding, setGeocoding] = useState(false);
   const [geocodeProgress, setGeocodeProgress] = useState('');
+  const [showReport, setShowReport] = useState(false);
 
   const handleSelectFromMap = useCallback(async (id: string) => {
     const { data } = await supabase
@@ -188,6 +190,7 @@ function App() {
         onGeocode={handleGeocode}
         geocoding={geocoding}
         geocodeProgress={geocodeProgress}
+        onReport={() => setShowReport(true)}
       />
 
       <div className="flex-1 flex flex-col min-h-0 px-4 py-3 gap-3">
@@ -272,6 +275,13 @@ function App() {
           />
         )}
       </div>
+
+      {showReport && (
+        <ReportModal
+          stats={stats}
+          onClose={() => setShowReport(false)}
+        />
+      )}
     </div>
   );
 }
