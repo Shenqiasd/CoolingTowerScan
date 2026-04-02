@@ -98,7 +98,7 @@ Deno.serve(async (req: Request) => {
 
     let successCount = 0;
     let failCount = 0;
-    const amapKey = Deno.env.get("AMAP_API_KEY");
+    const amapKey = Deno.env.get("AMAP_API_KEY") || "a7330f3c7b474880113a2f76cd02d9b4";
 
     for (const row of pending) {
       try {
