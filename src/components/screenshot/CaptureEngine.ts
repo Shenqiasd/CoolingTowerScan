@@ -1,0 +1,200 @@
+import mapboxgl from 'mapbox-gl';
+import { supabase } from '../../lib/supabase';
+
+export interface CaptureTask {
+  row: number;
+  col: number;
+  lng: number;
+  lat: number;
+  addressLabel?: string;
+}
+
+export interface CaptureResult {
+  filename: string;
+  dataUrl: string;
+  publicUrl: string | null;
+  row: number;
+  col: number;
+  lng: number;
+  lat: number;
+  addressLabel?: string;
+}
+
+export interface CaptureOptions {
+  map: mapboxgl.Map;
+  tasks: CaptureTask[];
+  zoomLevel: number;
+  mode: 'area' | 'address';
+  label?: string;
+  delayMs?: number;
+  onProgress?: (done: number, total: number, current: CaptureTask) => void;
+  onLog?: (msg: string, type: 'info' | 'success' | 'error') => void;
+  shouldStop: () => boolean;
+}
+
+function waitForMapIdle(map: mapboxgl.Map, timeout = 6000): Promise<void> {
+  return new Promise((resolve) => {
+    if (map.isStyleLoaded() && map.areTilesLoaded()) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, timeout);
+    map.once('idle', () => { clearTimeout(timer); resolve(); });
+  });
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+async function uploadToStorage(
+  blob: Blob,
+  path: string
+): Promise<string | null> {
+  const { error } = await supabase.storage
+    .from('scan-screenshots')
+    .upload(path, blob, { contentType: 'image/png', upsert: true });
+  if (error) return null;
+  const { data } = supabase.storage.from('scan-screenshots').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]> {
+  const { map, tasks, zoomLevel, mode, label, delayMs = 1500, onProgress, onLog, shouldStop } = opts;
+  const log = onLog ?? (() => {});
+
+  // Create scan_session record
+  const { data: sessionData, error: sessionErr } = await supabase
+    .from('scan_sessions')
+    .insert({ mode, label: label || null, zoom_level: zoomLevel, total_count: tasks.length })
+    .select('id')
+    .single();
+
+  if (sessionErr || !sessionData) {
+    log(`创建扫描任务失败: ${sessionErr?.message}`, 'error');
+  }
+  const sessionId: string | null = sessionData?.id ?? null;
+
+  const results: CaptureResult[] = [];
+
+  for (let i = 0; i < tasks.length; i++) {
+    if (shouldStop()) {
+      log('截图任务已手动停止', 'error');
+      break;
+    }
+
+    const task = tasks[i];
+    onProgress?.(i, tasks.length, task);
+
+    map.jumpTo({ center: [task.lng, task.lat], zoom: zoomLevel });
+    await sleep(delayMs);
+    await waitForMapIdle(map);
+
+    const canvas = map.getCanvas();
+    const dataUrl = canvas.toDataURL('image/png');
+
+    const addrSuffix = task.addressLabel ? `_${task.addressLabel.slice(0, 20).replace(/[/\\?%*:|"<>]/g, '_')}` : '';
+    const filename = `scan_R${task.row}_C${task.col}_Z${zoomLevel}${addrSuffix}.png`;
+    const storagePath = `${sessionId ?? 'nosession'}/${filename}`;
+
+    // Convert dataUrl to Blob
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const publicUrl = await uploadToStorage(blob, storagePath);
+
+    // Insert scan_screenshot record
+    if (sessionId) {
+      await supabase.from('scan_screenshots').insert({
+        session_id: sessionId,
+        filename,
+        storage_url: publicUrl,
+        lng: task.lng,
+        lat: task.lat,
+        row_idx: task.row,
+        col_idx: task.col,
+        address_label: task.addressLabel ?? null,
+      });
+    }
+
+    results.push({ filename, dataUrl, publicUrl, row: task.row, col: task.col, lng: task.lng, lat: task.lat, addressLabel: task.addressLabel });
+    log(`[${i + 1}/${tasks.length}] ${filename} ${publicUrl ? '✓ 已上传' : '(上传失败)'}`, publicUrl ? 'success' : 'error');
+  }
+
+  onProgress?.(tasks.length, tasks.length, tasks[tasks.length - 1]);
+  return results;
+}
+
+/** 根据区域边界和 zoom 计算地毯式截图任务列表 */
+export function buildAreaTasks(
+  map: mapboxgl.Map,
+  topLeftLng: number,
+  topLeftLat: number,
+  bottomRightLng: number,
+  bottomRightLat: number,
+  overlapRatio = 0.1
+): CaptureTask[] {
+  const bounds = map.getBounds();
+  const spanLng = bounds.getEast() - bounds.getWest();
+  const spanLat = bounds.getNorth() - bounds.getSouth();
+  const stepLng = spanLng * (1 - overlapRatio);
+  const stepLat = spanLat * (1 - overlapRatio);
+
+  const tasks: CaptureTask[] = [];
+  let currentLat = topLeftLat - spanLat / 2;
+  let row = 0;
+
+  while (currentLat + spanLat / 2 >= bottomRightLat) {
+    let currentLng = topLeftLng + spanLng / 2;
+    let col = 0;
+    while (currentLng - spanLng / 2 <= bottomRightLng) {
+      tasks.push({ row, col, lng: currentLng, lat: currentLat });
+      currentLng += stepLng;
+      col++;
+    }
+    currentLat -= stepLat;
+    row++;
+  }
+
+  return tasks;
+}
+
+/** 根据中心点和半径（米）计算单地址截图任务列表（地毯式） */
+export function buildAddressTasks(
+  map: mapboxgl.Map,
+  centerLng: number,
+  centerLat: number,
+  radiusMeters: number,
+  addressLabel: string,
+  overlapRatio = 0.1
+): CaptureTask[] {
+  // Convert radius to degrees (approximate)
+  const latDeg = radiusMeters / 111320;
+  const lngDeg = radiusMeters / (111320 * Math.cos((centerLat * Math.PI) / 180));
+
+  return buildAreaTasks(
+    map,
+    centerLng - lngDeg,
+    centerLat + latDeg,
+    centerLng + lngDeg,
+    centerLat - latDeg,
+    overlapRatio
+  ).map((t) => ({ ...t, addressLabel }));
+}
+
+/** 估算截图数量（不需要地图实例，用于预览） */
+export function estimateTaskCount(
+  viewSpanLng: number,
+  viewSpanLat: number,
+  topLeftLng: number,
+  topLeftLat: number,
+  bottomRightLng: number,
+  bottomRightLat: number,
+  overlapRatio = 0.1
+): { rows: number; cols: number; total: number } {
+  const stepLng = viewSpanLng * (1 - overlapRatio);
+  const stepLat = viewSpanLat * (1 - overlapRatio);
+  if (stepLng <= 0 || stepLat <= 0) return { rows: 0, cols: 0, total: 0 };
+  const cols = Math.ceil((bottomRightLng - topLeftLng) / stepLng);
+  const rows = Math.ceil((topLeftLat - bottomRightLat) / stepLat);
+  return { rows: Math.max(1, rows), cols: Math.max(1, cols), total: Math.max(1, rows) * Math.max(1, cols) };
+}

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, lazy, Suspense } from 'react';
 import { Map, List, Loader2 } from 'lucide-react';
-import MapScreenshot from './components/MapScreenshot';
-import type { ScreenshotResult } from './components/MapScreenshot';
+import MapScreenshot from './components/screenshot';
+import type { ScreenshotResult } from './components/screenshot';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
 import EnterpriseList from './components/EnterpriseList';

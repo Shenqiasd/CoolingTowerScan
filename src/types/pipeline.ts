@@ -1,4 +1,8 @@
-import type { ScreenshotResult } from '../components/MapScreenshot';
+import type { CaptureResult } from '../components/screenshot/CaptureEngine';
+
+export type { CaptureResult };
+// Backward compat alias
+export type ScreenshotResult = CaptureResult;
 
 export type PipelineStep = 'screenshot' | 'detection' | 'results';
 
@@ -21,7 +25,7 @@ export interface ScanDetection {
 }
 
 export interface ScanSession {
-  screenshots: ScreenshotResult[];
+  screenshots: CaptureResult[];
   detections: ScanDetection[];
   status: 'idle' | 'screenshotting' | 'detecting' | 'complete';
 }
