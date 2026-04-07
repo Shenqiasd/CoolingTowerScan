@@ -44,10 +44,6 @@ export default function MapScreenshot({ onScreenshotsComplete }: Props) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [uploadToStorage, setUploadToStorage] = useState(true);
-  const [autoDetect, setAutoDetect] = useState(false);
-  const [detectionApiUrl, setDetectionApiUrl] = useState(
-    () => localStorage.getItem('detection_api_url') || 'http://localhost:8000'
-  );
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     const now = new Date();
@@ -78,284 +74,232 @@ export default function MapScreenshot({ onScreenshotsComplete }: Props) {
             tileSize: 256,
           },
         },
-        layers: [{ id: 'google-satellite-layer', type: 'raster', source: 'google-satellite' }],
+        layers: [{ id: 'satellite', type: 'raster', source: 'google-satellite' }],
       },
       center: [centerLng, centerLat],
-      zoom: 12,
+      zoom: zoomLevel,
       preserveDrawingBuffer: true,
     });
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-    map.on('load', () => addLog('地图初始化完成', 'success'));
+
     map.on('click', (e) => {
       const mode = pickingModeRef.current;
       if (!mode) return;
-      const lng = Number(e.lngLat.lng.toFixed(6));
-      const lat = Number(e.lngLat.lat.toFixed(6));
+      const { lng, lat } = e.lngLat;
       if (mode === 'topLeft') {
-        setTopLeftLng(lng); setTopLeftLat(lat);
-        addLog(`已拾取左上角: [${lng}, ${lat}]`, 'success');
+        setTopLeftLng(+lng.toFixed(6));
+        setTopLeftLat(+lat.toFixed(6));
       } else {
-        setBottomRightLng(lng); setBottomRightLat(lat);
-        addLog(`已拾取右下角: [${lng}, ${lat}]`, 'success');
+        setBottomRightLng(+lng.toFixed(6));
+        setBottomRightLat(+lat.toFixed(6));
       }
       setPickingMode(null);
-      map.getCanvas().style.cursor = '';
     });
 
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  useEffect(() => {
-    if (!mapRef.current) return;
-    mapRef.current.getCanvas().style.cursor = pickingMode ? 'crosshair' : '';
-  }, [pickingMode]);
-
-  const waitForIdle = () => new Promise<void>((resolve) => {
-    const map = mapRef.current!;
-    if (map.isStyleLoaded() && map.areTilesLoaded()) { resolve(); return; }
-    map.once('idle', () => resolve());
-    setTimeout(resolve, 5000);
-  });
-
-  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-  const uploadImage = async (filename: string, dataUrl: string): Promise<string | null> => {
-    try {
-      const base64 = dataUrl.split(',')[1];
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: 'image/png' });
-      const path = `screenshots/${filename}.png`;
-      const { error } = await supabase.storage
-        .from('cooling-tower-images')
-        .upload(path, blob, { contentType: 'image/png', upsert: true });
-      if (error) throw error;
-      const { data } = supabase.storage.from('cooling-tower-images').getPublicUrl(path);
-      return data.publicUrl;
-    } catch (err) {
-      addLog(`上传失败: ${(err as Error).message}`, 'error');
-      return null;
-    }
-  };
-
-  const downloadImage = (filename: string, dataUrl: string) => {
-    const a = document.createElement('a');
-    a.href = dataUrl; a.download = `${filename}.png`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  };
-
-  const runDetection = async (dataUrl: string, filename: string, _lng: number, _lat: number) => {
-    try {
-      const base64 = dataUrl.split(',')[1];
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: 'image/png' });
-
-      const formData = new FormData();
-      formData.append('image', blob, `${filename}.png`);
-
-      const url = localStorage.getItem('detection_api_url') || detectionApiUrl;
-      const res = await fetch(`${url}/detect`, { method: 'POST', body: formData });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const result = await res.json();
-      addLog(
-        `检测完成: ${result.has_cooling_tower ? `发现 ${result.count} 个冷却塔 (置信度 ${(result.confidence * 100).toFixed(1)}%)` : '未检测到冷却塔'}`,
-        result.has_cooling_tower ? 'success' : 'info'
-      );
-      return result;
-    } catch (err) {
-      addLog(`检测失败: ${(err as Error).message}`, 'error');
-      return null;
-    }
-  };
-
-  const startProcess = async () => {
+  async function startScreenshot() {
     const map = mapRef.current;
-    if (!map) { addLog('地图未初始化，请先输入 Mapbox Token', 'error'); return; }
-    if (topLeftLat <= bottomRightLat) { addLog('左上角纬度必须大于右下角纬度', 'error'); return; }
-    if (topLeftLng >= bottomRightLng) { addLog('左上角经度必须小于右下角经度', 'error'); return; }
+    if (!map) return;
 
     setIsProcessing(true);
     shouldStopRef.current = false;
     setLogs([]);
-    addLog('开始准备地毯式截图任务...', 'info');
+    addLog('开始截图任务...');
+
+    map.setZoom(zoomLevel);
+    await new Promise(r => setTimeout(r, 500));
+
+    const bounds = map.getBounds();
+    const spanLng = bounds.getEast() - bounds.getWest();
+    const spanLat = bounds.getNorth() - bounds.getSouth();
+    const stepLng = spanLng * 0.9;
+    const stepLat = spanLat * 0.9;
+
+    const minLng = Math.min(topLeftLng, bottomRightLng);
+    const maxLng = Math.max(topLeftLng, bottomRightLng);
+    const minLat = Math.min(topLeftLat, bottomRightLat);
+    const maxLat = Math.max(topLeftLat, bottomRightLat);
+
+    const tasks: Array<{ lng: number; lat: number; row: number; col: number }> = [];
+    let row = 0;
+    for (let lat = maxLat; lat > minLat - stepLat; lat -= stepLat) {
+      let col = 0;
+      for (let lng = minLng; lng < maxLng + stepLng; lng += stepLng) {
+        const clampedLng = Math.min(lng, maxLng);
+        const clampedLat = Math.max(lat, minLat);
+        tasks.push({ lng: clampedLng, lat: clampedLat, row, col });
+        col++;
+      }
+      row++;
+    }
+
+    addLog(`共 ${tasks.length} 个截图任务 (${row} 行)`);
+
+    const waitForIdle = () => new Promise<void>((resolve) => {
+      if (map.isStyleLoaded() && map.areTilesLoaded()) {
+        resolve();
+      } else {
+        map.once('idle', () => resolve());
+      }
+    });
+
     const results: ScreenshotResult[] = [];
 
-    try {
+    for (let i = 0; i < tasks.length; i++) {
+      if (shouldStopRef.current) {
+        addLog('用户停止截图', 'error');
+        break;
+      }
+
+      const task = tasks[i];
+      addLog(`[${i + 1}/${tasks.length}] 移动到 (${task.lng.toFixed(4)}, ${task.lat.toFixed(4)})`);
+
+      map.setCenter([task.lng, task.lat]);
       map.setZoom(zoomLevel);
-      map.setCenter([topLeftLng, topLeftLat]);
-      await sleep(1000);
       await waitForIdle();
+      await new Promise(r => setTimeout(r, 1500));
 
-      const bounds = map.getBounds()!;
-      const spanLng = bounds.getEast() - bounds.getWest();
-      const spanLat = bounds.getNorth() - bounds.getSouth();
-      const stepLng = spanLng * 0.9;
-      const stepLat = spanLat * 0.9;
+      const canvas = map.getCanvas();
+      const dataUrl = canvas.toDataURL('image/png');
+      const filename = `tile_z${zoomLevel}_r${task.row}_c${task.col}.png`;
 
-      if (stepLng <= 0 || stepLat <= 0) throw new Error('地图视野获取失败');
+      let publicUrl: string | null = null;
 
-      addLog(`视野跨度: 经度 ${spanLng.toFixed(4)}, 纬度 ${spanLat.toFixed(4)}`, 'info');
+      if (uploadToStorage) {
+        try {
+          const blob = await (await fetch(dataUrl)).blob();
+          const path = `screenshots/${Date.now()}_${filename}`;
+          const { error } = await supabase.storage
+            .from('cooling-tower-images')
+            .upload(path, blob, { contentType: 'image/png' });
 
-      const taskList: { row: number; col: number; lng: number; lat: number }[] = [];
-      let currentLat = topLeftLat - spanLat / 2;
-      let row = 0;
-      while (currentLat + spanLat / 2 >= bottomRightLat) {
-        let currentLng = topLeftLng + spanLng / 2;
-        let col = 0;
-        while (currentLng - spanLng / 2 <= bottomRightLng) {
-          taskList.push({ row, col, lng: currentLng, lat: currentLat });
-          currentLng += stepLng; col++;
+          if (!error) {
+            const { data: urlData } = supabase.storage
+              .from('cooling-tower-images')
+              .getPublicUrl(path);
+            publicUrl = urlData.publicUrl;
+          }
+        } catch (err) {
+          addLog(`上传失败: ${err}`, 'error');
         }
-        currentLat -= stepLat; row++;
+      } else {
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = dataUrl;
+        link.click();
       }
 
-      addLog(`共需截图 ${taskList.length} 张`, 'success');
+      results.push({
+        filename,
+        dataUrl,
+        publicUrl,
+        row: task.row,
+        col: task.col,
+        lng: task.lng,
+        lat: task.lat,
+      });
 
-      for (let i = 0; i < taskList.length; i++) {
-        if (shouldStopRef.current) { addLog('已手动停止', 'error'); break; }
-        const task = taskList[i];
-        addLog(`处理 [${i + 1}/${taskList.length}] R${task.row}_C${task.col}...`, 'info');
-
-        map.jumpTo({ center: [task.lng, task.lat], zoom: zoomLevel });
-        await sleep(1500);
-        await waitForIdle();
-
-        const canvas = map.getCanvas();
-        const dataUrl = canvas.toDataURL('image/png');
-        const filename = `区域截图_R${task.row}_C${task.col}_Z${zoomLevel}`;
-
-        let publicUrl: string | null = null;
-        if (uploadToStorage) {
-          publicUrl = await uploadImage(filename, dataUrl);
-          if (publicUrl) addLog(`已上传: ${filename}`, 'success');
-        } else {
-          downloadImage(filename, dataUrl);
-          addLog(`已下载: ${filename}`, 'success');
-        }
-
-        if (autoDetect) {
-          await runDetection(dataUrl, filename, task.lng, task.lat);
-        }
-
-        results.push({ filename, dataUrl, publicUrl, row: task.row, col: task.col, lng: task.lng, lat: task.lat });
-      }
-
-      if (!shouldStopRef.current) {
-        addLog(`所有截图完成！共 ${results.length} 张`, 'success');
-        onScreenshotsComplete?.(results);
-      }
-    } catch (err) {
-      addLog(`出错: ${(err as Error).message}`, 'error');
-    } finally {
-      setIsProcessing(false);
-      shouldStopRef.current = false;
+      addLog(`✓ ${filename} 完成`, 'success');
     }
-  };
 
-  const inputCls = 'w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-cyan-500';
-  const btnCls = (active?: boolean) => `px-3 py-1 rounded text-xs font-medium transition-colors ${active ? 'bg-cyan-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`;
+    addLog(`截图完成，共 ${results.length} 张`, 'success');
+    onScreenshotsComplete?.(results);
+    setIsProcessing(false);
+  }
 
   return (
-    <div className="flex h-full gap-0">
-      {/* 控制面板 */}
-      <div className="w-80 bg-slate-800 border-r border-slate-700 flex flex-col overflow-y-auto p-4 gap-3 shrink-0">
-        <h2 className="text-sm font-semibold text-white">地毯式卫星截图</h2>
+    <div className="flex h-full">
+      {/* 左侧控制面板 */}
+      <div className="w-72 flex-shrink-0 bg-slate-800/50 border-r border-slate-700/40 p-4 flex flex-col gap-3 overflow-y-auto">
+        <h3 className="text-sm font-semibold text-white">区域截图</h3>
 
-        {/* Token */}
+        {/* Mapbox Token */}
         <div>
-          <label className="text-xs text-slate-400 mb-1 block">Mapbox Token</label>
+          <label className="text-[11px] text-slate-400 block mb-1">Mapbox Token</label>
           <input
-            type="password"
+            type="text"
             value={token}
-            onChange={e => setToken(e.target.value)}
+            onChange={(e) => setToken(e.target.value)}
             placeholder="pk.eyJ1..."
-            className={inputCls}
+            className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700/50 rounded text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500/50"
           />
         </div>
 
-        {/* 中心点 */}
-        <div>
-          <label className="text-xs text-slate-400 mb-1 block">地图中心点</label>
-          <div className="flex gap-2">
-            <input type="number" value={centerLng} onChange={e => setCenterLng(Number(e.target.value))} placeholder="经度" className={inputCls} step="0.001" />
-            <input type="number" value={centerLat} onChange={e => setCenterLat(Number(e.target.value))} placeholder="纬度" className={inputCls} step="0.001" />
+        {/* 中心坐标 */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] text-slate-400 block mb-1">中心经度</label>
+            <input type="number" step="0.001" value={centerLng} onChange={(e) => setCenterLng(+e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700/50 rounded text-xs text-white focus:outline-none focus:border-cyan-500/50" />
           </div>
-          <div className="flex gap-2 mt-1">
-            <button className={btnCls()} onClick={() => mapRef.current?.flyTo({ center: [centerLng, centerLat], zoom: 12 })}>定位</button>
-            <button className={btnCls()} onClick={() => { const c = mapRef.current?.getCenter(); if (c) { setCenterLng(Number(c.lng.toFixed(6))); setCenterLat(Number(c.lat.toFixed(6))); } }}>从地图获取</button>
+          <div>
+            <label className="text-[11px] text-slate-400 block mb-1">中心纬度</label>
+            <input type="number" step="0.001" value={centerLat} onChange={(e) => setCenterLat(+e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700/50 rounded text-xs text-white focus:outline-none focus:border-cyan-500/50" />
           </div>
         </div>
-
-        <hr className="border-slate-700" />
 
         {/* 左上角 */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs text-slate-400">左上角经纬度</label>
-            <button className={btnCls(pickingMode === 'topLeft')} onClick={() => setPickingMode(m => m === 'topLeft' ? null : 'topLeft')}>
+            <label className="text-[11px] text-slate-400">左上角坐标</label>
+            <button
+              onClick={() => setPickingMode(pickingMode === 'topLeft' ? null : 'topLeft')}
+              className={`text-[10px] px-1.5 py-0.5 rounded ${pickingMode === 'topLeft' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'}`}
+            >
               {pickingMode === 'topLeft' ? '点击地图...' : '地图拾取'}
             </button>
           </div>
-          <div className="flex gap-2">
-            <input type="number" value={topLeftLng} onChange={e => setTopLeftLng(Number(e.target.value))} placeholder="经度" className={inputCls} step="0.001" />
-            <input type="number" value={topLeftLat} onChange={e => setTopLeftLat(Number(e.target.value))} placeholder="纬度" className={inputCls} step="0.001" />
+          <div className="grid grid-cols-2 gap-2">
+            <input type="number" step="0.0001" value={topLeftLng} onChange={(e) => setTopLeftLng(+e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700/50 rounded text-xs text-white focus:outline-none focus:border-cyan-500/50" />
+            <input type="number" step="0.0001" value={topLeftLat} onChange={(e) => setTopLeftLat(+e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700/50 rounded text-xs text-white focus:outline-none focus:border-cyan-500/50" />
           </div>
         </div>
 
         {/* 右下角 */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs text-slate-400">右下角经纬度</label>
-            <button className={btnCls(pickingMode === 'bottomRight')} onClick={() => setPickingMode(m => m === 'bottomRight' ? null : 'bottomRight')}>
+            <label className="text-[11px] text-slate-400">右下角坐标</label>
+            <button
+              onClick={() => setPickingMode(pickingMode === 'bottomRight' ? null : 'bottomRight')}
+              className={`text-[10px] px-1.5 py-0.5 rounded ${pickingMode === 'bottomRight' ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'}`}
+            >
               {pickingMode === 'bottomRight' ? '点击地图...' : '地图拾取'}
             </button>
           </div>
-          <div className="flex gap-2">
-            <input type="number" value={bottomRightLng} onChange={e => setBottomRightLng(Number(e.target.value))} placeholder="经度" className={inputCls} step="0.001" />
-            <input type="number" value={bottomRightLat} onChange={e => setBottomRightLat(Number(e.target.value))} placeholder="纬度" className={inputCls} step="0.001" />
+          <div className="grid grid-cols-2 gap-2">
+            <input type="number" step="0.0001" value={bottomRightLng} onChange={(e) => setBottomRightLng(+e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700/50 rounded text-xs text-white focus:outline-none focus:border-cyan-500/50" />
+            <input type="number" step="0.0001" value={bottomRightLat} onChange={(e) => setBottomRightLat(+e.target.value)}
+              className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700/50 rounded text-xs text-white focus:outline-none focus:border-cyan-500/50" />
           </div>
         </div>
 
         {/* Zoom */}
         <div>
-          <label className="text-xs text-slate-400 mb-1 block">截图层级 (Zoom): {zoomLevel}</label>
-          <input type="range" min={14} max={22} value={zoomLevel} onChange={e => setZoomLevel(Number(e.target.value))} className="w-full accent-cyan-500" />
+          <label className="text-[11px] text-slate-400 block mb-1">缩放级别: {zoomLevel}</label>
+          <input type="range" min={14} max={20} value={zoomLevel} onChange={(e) => setZoomLevel(+e.target.value)}
+            className="w-full accent-cyan-500" />
         </div>
 
         {/* 上传选项 */}
-        <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
-          <input type="checkbox" checked={uploadToStorage} onChange={e => setUploadToStorage(e.target.checked)} className="accent-cyan-500" />
-          上传到 Supabase Storage（否则直接下载）
+        <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+          <input type="checkbox" checked={uploadToStorage} onChange={(e) => setUploadToStorage(e.target.checked)}
+            className="accent-cyan-500" />
+          上传到 Supabase Storage
         </label>
-
-        {/* 自动检测 */}
-        <div>
-          <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer mb-1">
-            <input type="checkbox" checked={autoDetect} onChange={e => setAutoDetect(e.target.checked)} className="accent-cyan-500" />
-            截图后自动调用冷却塔识别
-          </label>
-          {autoDetect && (
-            <input
-              type="text"
-              value={detectionApiUrl}
-              onChange={e => { setDetectionApiUrl(e.target.value); localStorage.setItem('detection_api_url', e.target.value); }}
-              placeholder="http://localhost:8000"
-              className={inputCls}
-            />
-          )}
-        </div>
 
         {/* 操作按钮 */}
         <div className="flex gap-2">
           <button
-            onClick={startProcess}
+            onClick={startScreenshot}
             disabled={isProcessing || !token}
             className="flex-1 py-2 rounded text-sm font-medium bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
           >

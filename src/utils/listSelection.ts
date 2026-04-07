@@ -1,4 +1,4 @@
-export type ViewTab = 'map' | 'list' | 'screenshot';
+export type ViewTab = 'map' | 'list';
 
 export interface FlyToTarget {
   latitude: number;
