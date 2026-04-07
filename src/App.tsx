@@ -1,5 +1,6 @@
 import { useState, useCallback, lazy, Suspense } from 'react';
-import { Map, List } from 'lucide-react';
+import { Map, List, Camera } from 'lucide-react';
+import MapScreenshot from './components/MapScreenshot';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
 import EnterpriseList from './components/EnterpriseList';
@@ -218,6 +219,17 @@ function App() {
               <Map className="w-3.5 h-3.5" />
               地图视角
             </button>
+            <button
+              onClick={() => setActiveTab('screenshot')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                activeTab === 'screenshot'
+                  ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-white border border-transparent'
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5" />
+              地图截图
+            </button>
           </div>
 
           <div className="flex-1">
@@ -230,7 +242,11 @@ function App() {
         </div>
 
         <div className="flex-1 min-h-0 flex gap-3">
-          {activeTab === 'map' ? (
+          {activeTab === 'screenshot' ? (
+            <div className="flex-1 min-w-0 rounded-xl overflow-hidden border border-slate-700/30">
+              <MapScreenshot />
+            </div>
+          ) : activeTab === 'map' ? (
             <div className="flex-1 min-w-0">
               <Suspense fallback={
                 <div className="h-full w-full rounded-xl border border-slate-700/40 flex items-center justify-center bg-slate-900/50">
