@@ -13,11 +13,13 @@ export interface CaptureResult {
   filename: string;
   dataUrl: string;
   publicUrl: string | null;
+  screenshotId: string | null;   // scan_screenshots.id after DB insert
   row: number;
   col: number;
   lng: number;
   lat: number;
   addressLabel?: string;
+  enterpriseId?: string | null;
 }
 
 export interface CaptureOptions {
@@ -26,6 +28,7 @@ export interface CaptureOptions {
   zoomLevel: number;
   mode: 'area' | 'address';
   label?: string;
+  enterpriseId?: string | null;
   delayMs?: number;
   onProgress?: (done: number, total: number, current: CaptureTask) => void;
   onLog?: (msg: string, type: 'info' | 'success' | 'error') => void;
@@ -66,7 +69,7 @@ async function uploadToStorage(
 }
 
 export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]> {
-  const { map, tasks, zoomLevel, mode, label, delayMs = 1500, onProgress, onLog, shouldStop } = opts;
+  const { map, tasks, zoomLevel, mode, label, enterpriseId, delayMs = 1500, onProgress, onLog, shouldStop } = opts;
   const log = onLog ?? (() => {});
 
   // Create scan_session record
@@ -109,9 +112,11 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
     const publicUrl = await uploadToStorage(blob, storagePath);
 
     // Insert scan_screenshot record
+    let screenshotId: string | null = null;
     if (sessionId) {
-      await supabase.from('scan_screenshots').insert({
+      const { data: ssData } = await supabase.from('scan_screenshots').insert({
         session_id: sessionId,
+        enterprise_id: enterpriseId ?? null,
         filename,
         storage_url: publicUrl,
         lng: task.lng,
@@ -119,10 +124,11 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
         row_idx: task.row,
         col_idx: task.col,
         address_label: task.addressLabel ?? null,
-      });
+      }).select('id').single();
+      screenshotId = ssData?.id ?? null;
     }
 
-    results.push({ filename, dataUrl, publicUrl, row: task.row, col: task.col, lng: task.lng, lat: task.lat, addressLabel: task.addressLabel });
+    results.push({ filename, dataUrl, publicUrl, screenshotId, row: task.row, col: task.col, lng: task.lng, lat: task.lat, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
     log(`[${i + 1}/${tasks.length}] ${filename} ${publicUrl ? '✓ 已上传' : '(上传失败)'}`, publicUrl ? 'success' : 'error');
   }
 

@@ -8,12 +8,15 @@ export type PipelineStep = 'screenshot' | 'detection' | 'results';
 
 export interface ScanDetection {
   screenshotFilename: string;
+  screenshotId: string | null;   // scan_screenshots.id
+  enterpriseId?: string | null;  // for enterprise auto-update
   lng: number;
   lat: number;
   hasCoolingTower: boolean;
   count: number;
   confidence: number;
   imageUrl: string | null;
+  error?: string;
   detections: Array<{
     class_name: string;
     confidence: number;

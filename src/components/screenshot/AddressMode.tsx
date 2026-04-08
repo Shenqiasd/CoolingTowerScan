@@ -248,6 +248,7 @@ export default function AddressMode({ token, onComplete }: Props) {
           zoomLevel,
           mode: 'address',
           label: selectedAddress.name,
+          enterpriseId: null,
           onProgress: (done, total) => { setProgress(done); setProgressTotal(total); },
           onLog: (msg) => addLog('info', msg),
           shouldStop: () => abortRef.current,

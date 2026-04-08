@@ -31,12 +31,14 @@ export async function detectImage(
   imageBlob: Blob,
   filename: string,
   apiUrl?: string,
+  conf?: number,
 ): Promise<DetectionApiResult> {
   const url = apiUrl || getDetectionApiUrl();
   const formData = new FormData();
   formData.append('image', imageBlob, filename);
 
-  const response = await fetch(`${url}/detect`, {
+  const confParam = conf !== undefined ? `?conf=${conf}` : '';
+  const response = await fetch(`${url}/detect${confParam}`, {
     method: 'POST',
     body: formData,
   });

@@ -21,3 +21,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# YOLO weights — large binary, stored in Supabase Storage
+*.pt
+*.pth
