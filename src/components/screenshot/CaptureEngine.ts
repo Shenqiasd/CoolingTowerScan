@@ -34,10 +34,18 @@ export interface CaptureOptions {
 
 function waitForMapIdle(map: mapboxgl.Map, timeout = 8000): Promise<void> {
   return new Promise((resolve) => {
-    const done = () => { clearTimeout(timer); setTimeout(resolve, 300); };
-    if (map.isStyleLoaded() && map.areTilesLoaded()) { done(); return; }
-    const timer = setTimeout(resolve, timeout);
-    map.once('idle', done);
+    const start = Date.now();
+    const check = () => {
+      if (map.isStyleLoaded() && map.areTilesLoaded()) {
+        // Extra frame buffer so GPU has flushed to canvas
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        return;
+      }
+      if (Date.now() - start > timeout) { resolve(); return; }
+      setTimeout(check, 100);
+    };
+    // jumpTo is synchronous but tile loading is async — start checking next tick
+    setTimeout(check, 50);
   });
 }
 
