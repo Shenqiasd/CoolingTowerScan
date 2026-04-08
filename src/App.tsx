@@ -233,7 +233,7 @@ function App() {
 
             {/* Content based on active step */}
             {activeStep === 'screenshot' && (
-              <MapScreenshot onComplete={handleScreenshotsReady} />
+              <MapScreenshot onScreenshotsComplete={handleScreenshotsReady} />
             )}
 
             {activeStep === 'detection' && (
