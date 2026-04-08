@@ -32,14 +32,12 @@ export interface CaptureOptions {
   shouldStop: () => boolean;
 }
 
-function waitForMapIdle(map: mapboxgl.Map, timeout = 6000): Promise<void> {
+function waitForMapIdle(map: mapboxgl.Map, timeout = 8000): Promise<void> {
   return new Promise((resolve) => {
-    if (map.isStyleLoaded() && map.areTilesLoaded()) {
-      resolve();
-      return;
-    }
+    const done = () => { clearTimeout(timer); setTimeout(resolve, 300); };
+    if (map.isStyleLoaded() && map.areTilesLoaded()) { done(); return; }
     const timer = setTimeout(resolve, timeout);
-    map.once('idle', () => { clearTimeout(timer); resolve(); });
+    map.once('idle', done);
   });
 }
 
@@ -87,8 +85,8 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
     onProgress?.(i, tasks.length, task);
 
     map.jumpTo({ center: [task.lng, task.lat], zoom: zoomLevel });
-    await sleep(delayMs);
     await waitForMapIdle(map);
+    await sleep(delayMs);
 
     const canvas = map.getCanvas();
     const dataUrl = canvas.toDataURL('image/png');
@@ -124,6 +122,25 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
   return results;
 }
 
+/**
+ * 根据 zoom 和画布尺寸计算单张截图覆盖的经纬度跨度（确定性，不依赖地图当前状态）
+ * Mapbox 使用 Web Mercator，512px tile，zoom N 下每像素 = 地球周长 / (512 * 2^N)
+ */
+export function viewSpanAtZoom(
+  zoom: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  centerLat: number
+): { spanLng: number; spanLat: number } {
+  const earthCircumference = 40075016.686; // meters
+  const metersPerPixel = earthCircumference / (512 * Math.pow(2, zoom));
+  const widthMeters = canvasWidth * metersPerPixel;
+  const heightMeters = canvasHeight * metersPerPixel;
+  const spanLng = widthMeters / (111320 * Math.cos((centerLat * Math.PI) / 180));
+  const spanLat = heightMeters / 111320;
+  return { spanLng, spanLat };
+}
+
 /** 根据区域边界和 zoom 计算地毯式截图任务列表 */
 export function buildAreaTasks(
   map: mapboxgl.Map,
@@ -131,11 +148,13 @@ export function buildAreaTasks(
   topLeftLat: number,
   bottomRightLng: number,
   bottomRightLat: number,
-  overlapRatio = 0.1
+  overlapRatio = 0.1,
+  zoom?: number
 ): CaptureTask[] {
-  const bounds = map.getBounds();
-  const spanLng = bounds.getEast() - bounds.getWest();
-  const spanLat = bounds.getNorth() - bounds.getSouth();
+  const centerLat = (topLeftLat + bottomRightLat) / 2;
+  const canvas = map.getCanvas();
+  const z = zoom ?? map.getZoom();
+  const { spanLng, spanLat } = viewSpanAtZoom(z, canvas.width, canvas.height, centerLat);
   const stepLng = spanLng * (1 - overlapRatio);
   const stepLat = spanLat * (1 - overlapRatio);
 
@@ -165,9 +184,9 @@ export function buildAddressTasks(
   centerLat: number,
   radiusMeters: number,
   addressLabel: string,
-  overlapRatio = 0.1
+  overlapRatio = 0.1,
+  zoom?: number
 ): CaptureTask[] {
-  // Convert radius to degrees (approximate)
   const latDeg = radiusMeters / 111320;
   const lngDeg = radiusMeters / (111320 * Math.cos((centerLat * Math.PI) / 180));
 
@@ -177,7 +196,8 @@ export function buildAddressTasks(
     centerLat + latDeg,
     centerLng + lngDeg,
     centerLat - latDeg,
-    overlapRatio
+    overlapRatio,
+    zoom
   ).map((t) => ({ ...t, addressLabel }));
 }
 

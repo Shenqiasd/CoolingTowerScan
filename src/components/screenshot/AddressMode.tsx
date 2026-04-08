@@ -238,6 +238,7 @@ export default function AddressMode({ token, onComplete }: Props) {
           radiusMeters,
           selectedAddress.name,
           overlapPct / 100,
+          zoomLevel,
         );
         setProgressTotal(tasks.length);
         addLog('info', `共 ${tasks.length} 个截图任务`);
@@ -265,6 +266,7 @@ export default function AddressMode({ token, onComplete }: Props) {
             radiusMeters,
             addr.text,
             overlapPct / 100,
+            zoomLevel,
           );
           allTasks = allTasks.concat(tasks);
         }
