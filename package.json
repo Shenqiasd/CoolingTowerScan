@@ -1,7 +1,12 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "cooling-tower-scan",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "冷却塔识别与HVAC交付全流程数字化平台",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shenqiasd/CoolingTowerScan"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
