@@ -35,6 +35,7 @@ export default function ReviewModal({
   const imageSrc =
     detection?.annotatedUrl ||
     detection?.publicUrl ||
+    detection?.dataUrl ||
     detection?.imageUrl ||
     '';
 

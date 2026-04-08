@@ -267,7 +267,7 @@ function App() {
                       <Map className="w-3.5 h-3.5" /> 地图
                     </button>
                     <div className="flex-1" />
-                    <FilterBar filters={filters} onChange={setFilters} />
+                    <FilterBar filters={filters} onChange={setFilters} totalCount={totalCount} />
                   </div>
 
                   <div className="flex-1 overflow-hidden">
