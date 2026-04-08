@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import {
   Camera, UserCheck, MapPin, FileText, Gavel,
   Wrench, ClipboardCheck, Activity, ChevronRight,
   Upload, Download, Database, FileBarChart,
-  LayoutDashboard,
+  LayoutDashboard, ChevronDown,
 } from 'lucide-react';
 import type { SopPhase } from '../types/project';
 import { SOP_PHASES, SOP_PHASE_LABELS } from '../types/project';
@@ -54,6 +55,13 @@ const STEP_TO_PHASE: Record<PipelineStep, SopPhase> = {
   results: 'prospecting',
 };
 
+const PIPELINE_STEPS: PipelineStep[] = ['screenshot', 'detection', 'results'];
+const STEP_LABELS: Record<PipelineStep, string> = {
+  screenshot: '区域截图',
+  detection: 'AI 识别',
+  results: '数据总览',
+};
+
 export default function LifecycleSidebar({
   activeView,
   onViewChange,
@@ -67,6 +75,10 @@ export default function LifecycleSidebar({
   onExport,
   onReport,
 }: Props) {
+  const [expandedPhase, setExpandedPhase] = useState<SopPhase | null>(
+    activeView !== 'dashboard' ? 'prospecting' : null
+  );
+
   const isDashboard = activeView === 'dashboard';
   const activePhase = isDashboard ? null : STEP_TO_PHASE[activeStep];
 
@@ -105,73 +117,85 @@ export default function LifecycleSidebar({
           const Icon = PHASE_ICONS[phase];
           const colors = PHASE_COLORS[phase];
           const isActive = activePhase === phase;
+          const isExpanded = expandedPhase === phase;
           const count = projectCounts[phase] || 0;
+          const hasSubSteps = phase === 'prospecting';
 
           return (
-            <button
-              key={phase}
-              onClick={() => {
-                if (phase === 'prospecting') {
-                  onViewChange('results');
-                  onStepChange('results');
-                }
-                // Other phases will navigate to their module pages when built
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all group ${
-                isActive
-                  ? `${colors.activeBg} border ${colors.activeBorder} text-white`
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent'
-              }`}
-            >
-              <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
-                isActive ? `${colors.bg} ${colors.text}` : 'bg-slate-800 text-slate-500 group-hover:text-slate-300'
-              }`}>
-                <Icon className="w-3 h-3" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1">
-                  <span className="text-[11px] font-medium">{SOP_PHASE_LABELS[phase]}</span>
-                  {isActive && <ChevronRight className="w-3 h-3 opacity-60" />}
+            <div key={phase}>
+              <button
+                onClick={() => {
+                  if (hasSubSteps) {
+                    const willExpand = !isExpanded;
+                    setExpandedPhase(willExpand ? phase : null);
+                    if (willExpand) {
+                      // default to results sub-step when expanding
+                      onViewChange(activeStep === 'screenshot' || activeStep === 'detection' || activeStep === 'results'
+                        ? activeStep
+                        : 'results');
+                      onStepChange(activeStep === 'screenshot' || activeStep === 'detection' || activeStep === 'results'
+                        ? activeStep
+                        : 'results');
+                    } else {
+                      onViewChange('dashboard');
+                    }
+                  }
+                  // other phases: no-op for now
+                }}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all group ${
+                  isActive
+                    ? `${colors.activeBg} border ${colors.activeBorder} text-white`
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent'
+                }`}
+              >
+                <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
+                  isActive ? `${colors.bg} ${colors.text}` : 'bg-slate-800 text-slate-500 group-hover:text-slate-300'
+                }`}>
+                  <Icon className="w-3 h-3" />
                 </div>
-                {count > 0 && (
-                  <p className={`text-[10px] mt-0.5 ${isActive ? colors.text : 'text-slate-500'}`}>
-                    {count} 个项目
-                  </p>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[11px] font-medium">{SOP_PHASE_LABELS[phase]}</span>
+                  {count > 0 && (
+                    <p className={`text-[10px] mt-0.5 ${isActive ? colors.text : 'text-slate-500'}`}>
+                      {count} 个项目
+                    </p>
+                  )}
+                </div>
+                {hasSubSteps && (
+                  isExpanded
+                    ? <ChevronDown className="w-3 h-3 opacity-50 flex-shrink-0" />
+                    : <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />
                 )}
-              </div>
-            </button>
+              </button>
+
+              {/* Sub-steps for prospecting */}
+              {hasSubSteps && isExpanded && (
+                <div className="ml-9 mt-0.5 space-y-0.5">
+                  {PIPELINE_STEPS.map((step) => {
+                    const isStepActive = activeStep === step && !isDashboard;
+                    return (
+                      <button
+                        key={step}
+                        onClick={() => {
+                          onViewChange(step);
+                          onStepChange(step);
+                        }}
+                        className={`w-full text-left px-3 py-1.5 rounded text-[11px] transition-colors ${
+                          isStepActive
+                            ? 'text-indigo-400 bg-indigo-600/10'
+                            : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40'
+                        }`}
+                      >
+                        {STEP_LABELS[step]}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
-
-      {/* Prospecting sub-steps (shown when in prospecting phase) */}
-      {!isDashboard && (
-        <div className="px-3 py-2 border-t border-slate-700/30">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider px-2 mb-2">冷却塔识别</p>
-          {(['screenshot', 'detection', 'results'] as PipelineStep[]).map((step) => {
-            const labels: Record<PipelineStep, string> = {
-              screenshot: '区域截图',
-              detection: 'AI 识别',
-              results: '数据总览',
-            };
-            const isActive = activeStep === step && activeView !== 'dashboard';
-            return (
-              <button
-                key={step}
-                onClick={() => {
-                  onViewChange(step);
-                  onStepChange(step);
-                }}
-                className={`w-full text-left px-3 py-1.5 rounded text-[11px] transition-colors ${
-                  isActive ? 'text-cyan-400 bg-cyan-600/10' : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                {labels[step]}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       {/* Data Management */}
       <div className="px-3 py-3 border-t border-slate-700/30 space-y-1">
