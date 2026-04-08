@@ -3,7 +3,7 @@ import mapboxgl from 'mapbox-gl';
 import gcoord from 'gcoord';
 import { Search, Play, StopCircle, Plus, Trash2, MapPin } from 'lucide-react';
 import MapCanvas, { type MapCanvasHandle } from './MapCanvas';
-import { runCapture, buildAddressTasks, autoZoomForRadius, type CaptureResult } from './CaptureEngine';
+import { runAddressCapture, estimateAddressGridCount, type CaptureResult } from './CaptureEngine';
 
 interface Props {
   token: string;
@@ -230,63 +230,56 @@ export default function AddressMode({ token, onComplete }: Props) {
     try {
       if (mode === 'single') {
         if (!selectedAddress) { addLog('error', '请先选择地址'); setIsCapturing(false); return; }
-        addLog('info', `构建任务: ${selectedAddress.name}`);
-        const tasks = buildAddressTasks(
+        const gridCount = estimateAddressGridCount(radiusMeters, zoomLevel, selectedAddress.lat);
+        addLog('info', `${selectedAddress.name}：zoom=${zoomLevel}，预计 ${gridCount} 张瓦片拼合`);
+        setProgressTotal(gridCount);
+        const result = await runAddressCapture({
           map,
-          selectedAddress.lng,
-          selectedAddress.lat,
+          centerLng: selectedAddress.lng,
+          centerLat: selectedAddress.lat,
           radiusMeters,
-          selectedAddress.name,
-        );
-        const canvas = map.getCanvas();
-        const autoZoom = autoZoomForRadius(radiusMeters, canvas.width, selectedAddress.lat);
-        const effectiveZoom = Math.min(autoZoom, zoomLevel);
-        setProgressTotal(tasks.length);
-        addLog('info', `共 ${tasks.length} 个截图任务，zoom=${effectiveZoom}`);
-        const results = await runCapture({
-          map,
-          tasks,
-          zoomLevel: effectiveZoom,
-          mode: 'address',
-          label: selectedAddress.name,
+          zoomLevel,
+          addressLabel: selectedAddress.name,
           enterpriseId: null,
           onProgress: (done, total) => { setProgress(done); setProgressTotal(total); },
-          onLog: (msg) => addLog('info', msg),
+          onLog: (msg, type) => addLog(type === 'error' ? 'error' : type === 'success' ? 'info' : 'info', msg),
           shouldStop: () => abortRef.current,
         });
-        addLog('info', `完成，共 ${results.length} 张`);
-        onComplete(results);
+        if (result) {
+          addLog('info', `完成，拼合图已上传`);
+          onComplete([result]);
+        } else {
+          addLog('warn', '截图被中止或失败');
+        }
       } else {
         const valid = batchAddresses.filter((a) => a.status === 'done' && a.lng !== undefined && a.lat !== undefined);
         if (!valid.length) { addLog('error', '没有可用的已解析地址'); setIsCapturing(false); return; }
-        let allTasks: ReturnType<typeof buildAddressTasks> = [];
+        const totalTiles = valid.reduce((sum, a) => sum + estimateAddressGridCount(radiusMeters, zoomLevel, a.lat!), 0);
+        setProgressTotal(totalTiles);
+        addLog('info', `批量 ${valid.length} 个地址，预计共 ${totalTiles} 张瓦片`);
+        let doneCount = 0;
+        const allResults: CaptureResult[] = [];
         for (const addr of valid) {
-          const tasks = buildAddressTasks(
+          if (abortRef.current) break;
+          addLog('info', `处理: ${addr.text}`);
+          const result = await runAddressCapture({
             map,
-            addr.lng!,
-            addr.lat!,
+            centerLng: addr.lng!,
+            centerLat: addr.lat!,
             radiusMeters,
-            addr.text,
-          );
-          allTasks = allTasks.concat(tasks);
+            zoomLevel,
+            addressLabel: addr.text,
+            onProgress: (done) => { setProgress(doneCount + done); },
+            onLog: (msg, type) => addLog(type === 'error' ? 'error' : 'info', msg),
+            shouldStop: () => abortRef.current,
+          });
+          if (result) {
+            allResults.push(result);
+            doneCount += estimateAddressGridCount(radiusMeters, zoomLevel, addr.lat!);
+          }
         }
-        const canvas = map.getCanvas();
-        const firstValid = valid[0];
-        const autoZoom = autoZoomForRadius(radiusMeters, canvas.width, firstValid.lat!);
-        const effectiveZoom = Math.min(autoZoom, zoomLevel);
-        setProgressTotal(allTasks.length);
-        addLog('info', `批量任务共 ${allTasks.length} 个截图，zoom=${effectiveZoom}`);
-        const results = await runCapture({
-          map,
-          tasks: allTasks,
-          zoomLevel: effectiveZoom,
-          mode: 'address',
-          onProgress: (done, total) => { setProgress(done); setProgressTotal(total); },
-          onLog: (msg) => addLog('info', msg),
-          shouldStop: () => abortRef.current,
-        });
-        addLog('info', `批量完成，共 ${results.length} 张`);
-        onComplete(results);
+        addLog('info', `批量完成，共 ${allResults.length} 张拼合图`);
+        onComplete(allResults);
       }
     } catch (e) {
       addLog('error', `捕获异常: ${String(e)}`);

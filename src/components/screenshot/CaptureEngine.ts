@@ -30,6 +30,8 @@ export interface CaptureOptions {
   label?: string;
   enterpriseId?: string | null;
   delayMs?: number;
+  skipUpload?: boolean;           // if true, skip Supabase upload & DB insert (for tile stitching)
+  sessionId?: string | null;      // pass existing session id (for stitched flow)
   onProgress?: (done: number, total: number, current: CaptureTask) => void;
   onLog?: (msg: string, type: 'info' | 'success' | 'error') => void;
   shouldStop: () => boolean;
@@ -69,20 +71,22 @@ async function uploadToStorage(
 }
 
 export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]> {
-  const { map, tasks, zoomLevel, mode, label, enterpriseId, delayMs = 1500, onProgress, onLog, shouldStop } = opts;
+  const { map, tasks, zoomLevel, mode, label, enterpriseId, delayMs = 1500, skipUpload = false, onProgress, onLog, shouldStop } = opts;
   const log = onLog ?? (() => {});
 
-  // Create scan_session record
-  const { data: sessionData, error: sessionErr } = await supabase
-    .from('scan_sessions')
-    .insert({ mode, label: label || null, zoom_level: zoomLevel, total_count: tasks.length })
-    .select('id')
-    .single();
-
-  if (sessionErr || !sessionData) {
-    log(`创建扫描任务失败: ${sessionErr?.message}`, 'error');
+  // Create scan_session record (skip if sessionId already provided or skipUpload)
+  let sessionId: string | null = opts.sessionId ?? null;
+  if (!skipUpload && !sessionId) {
+    const { data: sessionData, error: sessionErr } = await supabase
+      .from('scan_sessions')
+      .insert({ mode, label: label || null, zoom_level: zoomLevel, total_count: tasks.length })
+      .select('id')
+      .single();
+    if (sessionErr || !sessionData) {
+      log(`创建扫描任务失败: ${sessionErr?.message}`, 'error');
+    }
+    sessionId = sessionData?.id ?? null;
   }
-  const sessionId: string | null = sessionData?.id ?? null;
 
   const results: CaptureResult[] = [];
 
@@ -104,14 +108,18 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
 
     const addrSuffix = task.addressLabel ? `_${task.addressLabel.slice(0, 20).replace(/[/\\?%*:|"<>]/g, '_')}` : '';
     const filename = `scan_R${task.row}_C${task.col}_Z${zoomLevel}${addrSuffix}.png`;
-    const storagePath = `${sessionId ?? 'nosession'}/${filename}`;
 
-    // Convert dataUrl to Blob
+    if (skipUpload) {
+      results.push({ filename, dataUrl, publicUrl: null, screenshotId: null, row: task.row, col: task.col, lng: task.lng, lat: task.lat, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
+      log(`[${i + 1}/${tasks.length}] 瓦片 R${task.row}C${task.col} 截图完成`, 'info');
+      continue;
+    }
+
+    const storagePath = `${sessionId ?? 'nosession'}/${filename}`;
     const res = await fetch(dataUrl);
     const blob = await res.blob();
     const publicUrl = await uploadToStorage(blob, storagePath);
 
-    // Insert scan_screenshot record
     let screenshotId: string | null = null;
     if (sessionId) {
       const { data: ssData } = await supabase.from('scan_screenshots').insert({
@@ -230,4 +238,195 @@ export function estimateTaskCount(
   const cols = Math.ceil((bottomRightLng - topLeftLng) / stepLng);
   const rows = Math.ceil((topLeftLat - bottomRightLat) / stepLat);
   return { rows: Math.max(1, rows), cols: Math.max(1, cols), total: Math.max(1, rows) * Math.max(1, cols) };
+}
+
+/**
+ * 地址模式：根据中心点 + 半径 + zoom 18 生成地毯式瓦片任务
+ * 返回 tasks 数组及网格尺寸（拼合时需要）
+ */
+export function buildAddressGridTasks(
+  map: mapboxgl.Map,
+  centerLng: number,
+  centerLat: number,
+  radiusMeters: number,
+  addressLabel: string,
+  zoom = 18,
+  overlapRatio = 0.1,
+): { tasks: CaptureTask[]; gridCols: number; gridRows: number } {
+  const canvas = map.getCanvas();
+  const { spanLng, spanLat } = viewSpanAtZoom(zoom, canvas.width, canvas.height, centerLat);
+
+  // meters per tile (approximate, using center lat)
+  const metersPerDegreeLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
+  const tileWidthMeters = spanLng * metersPerDegreeLng;
+  const tileHeightMeters = spanLat * 111320;
+
+  const stepWidthMeters = tileWidthMeters * (1 - overlapRatio);
+  const stepHeightMeters = tileHeightMeters * (1 - overlapRatio);
+
+  // Number of tiles needed to cover diameter, rounded up to odd (center tile on center point)
+  const colsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepWidthMeters));
+  const rowsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepHeightMeters));
+  const gridCols = colsNeeded % 2 === 0 ? colsNeeded + 1 : colsNeeded;
+  const gridRows = rowsNeeded % 2 === 0 ? rowsNeeded + 1 : rowsNeeded;
+
+  const halfCols = Math.floor(gridCols / 2);
+  const halfRows = Math.floor(gridRows / 2);
+
+  const stepLng = spanLng * (1 - overlapRatio);
+  const stepLat = spanLat * (1 - overlapRatio);
+
+  const tasks: CaptureTask[] = [];
+  for (let row = 0; row < gridRows; row++) {
+    for (let col = 0; col < gridCols; col++) {
+      const lng = centerLng + (col - halfCols) * stepLng;
+      const lat = centerLat - (row - halfRows) * stepLat;
+      tasks.push({ row, col, lng, lat, addressLabel });
+    }
+  }
+
+  return { tasks, gridCols, gridRows };
+}
+
+/** 估算地址模式瓦片数量（用于 UI 预览，不需要地图实例） */
+export function estimateAddressGridCount(
+  radiusMeters: number,
+  zoom = 18,
+  canvasWidth = 1280,
+  canvasHeight = 720,
+  centerLat = 30,
+  overlapRatio = 0.1,
+): { gridCols: number; gridRows: number; total: number } {
+  const { spanLng, spanLat } = viewSpanAtZoom(zoom, canvasWidth, canvasHeight, centerLat);
+  const metersPerDegreeLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
+  const tileWidthMeters = spanLng * metersPerDegreeLng;
+  const tileHeightMeters = spanLat * 111320;
+  const stepWidthMeters = tileWidthMeters * (1 - overlapRatio);
+  const stepHeightMeters = tileHeightMeters * (1 - overlapRatio);
+  const colsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepWidthMeters));
+  const rowsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepHeightMeters));
+  const gridCols = colsNeeded % 2 === 0 ? colsNeeded + 1 : colsNeeded;
+  const gridRows = rowsNeeded % 2 === 0 ? rowsNeeded + 1 : rowsNeeded;
+  return { gridCols, gridRows, total: gridCols * gridRows };
+}
+
+/** 把多张瓦片 dataUrl 按 row/col 拼合成一张大图 Blob */
+export async function stitchTiles(
+  tiles: CaptureResult[],
+  gridCols: number,
+  gridRows: number,
+): Promise<Blob> {
+  // Load first tile to get dimensions
+  const firstImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = tiles[0].dataUrl;
+  });
+  const tileW = firstImg.naturalWidth;
+  const tileH = firstImg.naturalHeight;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = gridCols * tileW;
+  canvas.height = gridRows * tileH;
+  const ctx = canvas.getContext('2d')!;
+
+  await Promise.all(tiles.map(tile =>
+    new Promise<void>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, tile.col * tileW, tile.row * tileH);
+        resolve();
+      };
+      img.onerror = reject;
+      img.src = tile.dataUrl;
+    })
+  ));
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob failed')), 'image/png');
+  });
+}
+
+/** 地址模式完整流程：截多张瓦片 → 拼合 → 上传一张大图 → 返回单个 CaptureResult */
+export async function runAddressCapture(opts: {
+  map: mapboxgl.Map;
+  centerLng: number;
+  centerLat: number;
+  radiusMeters: number;
+  addressLabel: string;
+  zoomLevel?: number;
+  overlapRatio?: number;
+  enterpriseId?: string | null;
+  delayMs?: number;
+  onProgress?: (done: number, total: number) => void;
+  onLog?: (msg: string, type: 'info' | 'success' | 'error') => void;
+  shouldStop: () => boolean;
+}): Promise<CaptureResult | null> {
+  const {
+    map, centerLng, centerLat, radiusMeters, addressLabel,
+    zoomLevel = 18, overlapRatio = 0.1, enterpriseId = null,
+    delayMs = 1500, onProgress, onLog, shouldStop,
+  } = opts;
+  const log = onLog ?? (() => {});
+
+  const { tasks, gridCols, gridRows } = buildAddressGridTasks(
+    map, centerLng, centerLat, radiusMeters, addressLabel, zoomLevel, overlapRatio
+  );
+
+  log(`开始截图：${gridRows}×${gridCols} = ${tasks.length} 张瓦片，zoom ${zoomLevel}`, 'info');
+
+  // Create session for this address
+  const { data: sessionData } = await supabase
+    .from('scan_sessions')
+    .insert({ mode: 'address', label: addressLabel, zoom_level: zoomLevel, total_count: 1 })
+    .select('id')
+    .single();
+  const sessionId: string | null = sessionData?.id ?? null;
+
+  // Capture all tiles (no upload, no DB insert)
+  const tiles = await runCapture({
+    map, tasks, zoomLevel, mode: 'address', label: addressLabel,
+    enterpriseId, delayMs, skipUpload: true, sessionId,
+    onProgress: (done, total) => onProgress?.(done, total),
+    onLog, shouldStop,
+  });
+
+  if (tiles.length === 0 || shouldStop()) return null;
+
+  log(`拼合 ${tiles.length} 张瓦片中...`, 'info');
+
+  const stitchedBlob = await stitchTiles(tiles, gridCols, gridRows);
+
+  // Upload stitched image
+  const safeLabel = addressLabel.slice(0, 20).replace(/[/\\?%*:|"<>]/g, '_');
+  const filename = `stitched_Z${zoomLevel}_${safeLabel}.png`;
+  const storagePath = `${sessionId ?? 'nosession'}/stitched/${filename}`;
+  const publicUrl = await uploadToStorage(stitchedBlob, storagePath);
+
+  log(`拼合完成 (${gridCols * (tiles[0] ? 1 : 0)}×${gridRows} → ${Math.round(stitchedBlob.size / 1024)}KB)，${publicUrl ? '✓ 已上传' : '上传失败'}`, publicUrl ? 'success' : 'error');
+
+  // Insert single scan_screenshot record for the stitched image
+  let screenshotId: string | null = null;
+  if (sessionId) {
+    const { data: ssData } = await supabase.from('scan_screenshots').insert({
+      session_id: sessionId,
+      enterprise_id: enterpriseId ?? null,
+      filename,
+      storage_url: publicUrl,
+      lng: centerLng,
+      lat: centerLat,
+      row_idx: 0,
+      col_idx: 0,
+      address_label: addressLabel,
+    }).select('id').single();
+    screenshotId = ssData?.id ?? null;
+  }
+
+  const dataUrl = URL.createObjectURL(stitchedBlob);
+  return {
+    filename, dataUrl, publicUrl, screenshotId,
+    row: 0, col: 0, lng: centerLng, lat: centerLat,
+    addressLabel, enterpriseId,
+  };
 }
