@@ -105,7 +105,7 @@ export default function AddressMode({ token, onComplete }: Props) {
   }, [logs]);
 
   const updateCircle = useCallback((lng: number, lat: number, radius: number) => {
-    const map = mapRef.current?.getMap();
+    const map = mapRef.current?.map;
     if (!map) return;
     const geojson = makeCircleGeoJSON(lng, lat, radius);
     const src = map.getSource(CIRCLE_SOURCE) as mapboxgl.GeoJSONSource | undefined;
@@ -129,7 +129,7 @@ export default function AddressMode({ token, onComplete }: Props) {
   }, []);
 
   const placeMarker = useCallback((lng: number, lat: number) => {
-    const map = mapRef.current?.getMap();
+    const map = mapRef.current?.map;
     if (!map) return;
     if (markerRef.current) markerRef.current.remove();
     markerRef.current = new mapboxgl.Marker({ color: '#06b6d4' })
@@ -218,7 +218,7 @@ export default function AddressMode({ token, onComplete }: Props) {
   }, []);
 
   const handleStartCapture = useCallback(async () => {
-    const map = mapRef.current?.getMap();
+    const map = mapRef.current?.map;
     if (!map) { addLog('error', '地图未就绪'); return; }
 
     abortRef.current = false;
@@ -241,10 +241,15 @@ export default function AddressMode({ token, onComplete }: Props) {
         );
         setProgressTotal(tasks.length);
         addLog('info', `共 ${tasks.length} 个截图任务`);
-        const results = await runCapture(tasks, {
+        const results = await runCapture({
+          map,
+          tasks,
+          zoomLevel,
+          mode: 'address',
+          label: selectedAddress.name,
           onProgress: (done, total) => { setProgress(done); setProgressTotal(total); },
           onLog: (msg) => addLog('info', msg),
-          shouldAbort: () => abortRef.current,
+          shouldStop: () => abortRef.current,
         });
         addLog('info', `完成，共 ${results.length} 张`);
         onComplete(results);
@@ -265,10 +270,14 @@ export default function AddressMode({ token, onComplete }: Props) {
         }
         setProgressTotal(allTasks.length);
         addLog('info', `批量任务共 ${allTasks.length} 个截图`);
-        const results = await runCapture(allTasks, {
+        const results = await runCapture({
+          map,
+          tasks: allTasks,
+          zoomLevel,
+          mode: 'address',
           onProgress: (done, total) => { setProgress(done); setProgressTotal(total); },
           onLog: (msg) => addLog('info', msg),
-          shouldAbort: () => abortRef.current,
+          shouldStop: () => abortRef.current,
         });
         addLog('info', `批量完成，共 ${results.length} 张`);
         onComplete(results);
@@ -278,7 +287,7 @@ export default function AddressMode({ token, onComplete }: Props) {
     } finally {
       setIsCapturing(false);
     }
-  }, [mode, selectedAddress, batchAddresses, radiusMeters, overlapPct, addLog, onComplete]);
+  }, [mode, selectedAddress, batchAddresses, radiusMeters, overlapPct, zoomLevel, addLog, onComplete]);
 
   const handleStop = useCallback(() => {
     abortRef.current = true;
