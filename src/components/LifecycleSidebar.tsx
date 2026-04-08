@@ -80,7 +80,10 @@ export default function LifecycleSidebar({
   );
 
   const isDashboard = activeView === 'dashboard';
-  const activePhase = isDashboard ? null : STEP_TO_PHASE[activeStep];
+  // activePhase: which phase is currently active (based on active sub-step)
+  const activePhase = (!isDashboard && (activeView === 'screenshot' || activeView === 'detection' || activeView === 'results'))
+    ? STEP_TO_PHASE[activeStep]
+    : null;
 
   return (
     <div className="w-60 bg-slate-900/80 border-r border-slate-700/40 flex flex-col h-full flex-shrink-0">
@@ -126,19 +129,7 @@ export default function LifecycleSidebar({
               <button
                 onClick={() => {
                   if (hasSubSteps) {
-                    const willExpand = !isExpanded;
-                    setExpandedPhase(willExpand ? phase : null);
-                    if (willExpand) {
-                      // default to results sub-step when expanding
-                      onViewChange(activeStep === 'screenshot' || activeStep === 'detection' || activeStep === 'results'
-                        ? activeStep
-                        : 'results');
-                      onStepChange(activeStep === 'screenshot' || activeStep === 'detection' || activeStep === 'results'
-                        ? activeStep
-                        : 'results');
-                    } else {
-                      onViewChange('dashboard');
-                    }
+                    setExpandedPhase(isExpanded ? null : phase);
                   }
                   // other phases: no-op for now
                 }}
