@@ -116,6 +116,15 @@ function App() {
     handleDataImported();
   }, [handleDataImported]);
 
+  const handleDetectionsUpdate = useCallback((detections: ScanDetection[]) => {
+    setSession((prev) => ({ ...prev, detections }));
+  }, []);
+
+  const handleDetectionStatusChange = useCallback((status: 'detecting' | 'complete' | 'idle') => {
+    setSession((prev) => ({ ...prev, status }));
+    if (status === 'complete') handleDataImported();
+  }, [handleDataImported]);
+
   const handleScreenshotsReady = useCallback((screenshots: ScreenshotResult[]) => {
     setSession((prev) => ({ ...prev, screenshots, status: 'screenshotting' }));
     setActiveStep('detection');
@@ -219,7 +228,7 @@ function App() {
             {/* Header */}
             <Header
               stats={stats}
-              loading={statsLoading}
+              statsLoading={statsLoading}
             />
 
             {/* Content based on active step */}
@@ -230,7 +239,9 @@ function App() {
             {activeStep === 'detection' && (
               <DetectionPanel
                 screenshots={session.screenshots}
-                onComplete={handleDetectionComplete}
+                detections={session.detections}
+                onDetectionsUpdate={handleDetectionsUpdate}
+                onStatusChange={handleDetectionStatusChange}
               />
             )}
 
