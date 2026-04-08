@@ -192,27 +192,26 @@ export function buildAreaTasks(
 }
 
 /** 根据中心点和半径（米）计算单地址截图任务列表（地毯式） */
+/** 根据半径自动计算合适的 zoom，使单张截图能覆盖整个直径范围（含 1.2x 边距） */
+export function autoZoomForRadius(radiusM: number, canvasWidth: number, centerLat: number): number {
+  const earthCircumference = 40075016.686;
+  const targetSpanMeters = radiusM * 2 * 1.2;
+  const zoom = Math.log2(
+    (earthCircumference * Math.cos((centerLat * Math.PI) / 180)) /
+    (targetSpanMeters * (canvasWidth / 512))
+  );
+  return Math.min(Math.floor(zoom), 18);
+}
+
+/** 地址搜索模式：每个地址只生成 1 个任务，zoom 自动适配半径 */
 export function buildAddressTasks(
   map: mapboxgl.Map,
   centerLng: number,
   centerLat: number,
   radiusMeters: number,
   addressLabel: string,
-  overlapRatio = 0.1,
-  zoom?: number
 ): CaptureTask[] {
-  const latDeg = radiusMeters / 111320;
-  const lngDeg = radiusMeters / (111320 * Math.cos((centerLat * Math.PI) / 180));
-
-  return buildAreaTasks(
-    map,
-    centerLng - lngDeg,
-    centerLat + latDeg,
-    centerLng + lngDeg,
-    centerLat - latDeg,
-    overlapRatio,
-    zoom
-  ).map((t) => ({ ...t, addressLabel }));
+  return [{ row: 0, col: 0, lng: centerLng, lat: centerLat, addressLabel }];
 }
 
 /** 估算截图数量（不需要地图实例，用于预览） */

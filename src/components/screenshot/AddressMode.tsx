@@ -3,7 +3,7 @@ import mapboxgl from 'mapbox-gl';
 import gcoord from 'gcoord';
 import { Search, Play, StopCircle, Plus, Trash2, MapPin } from 'lucide-react';
 import MapCanvas, { type MapCanvasHandle } from './MapCanvas';
-import { runCapture, buildAddressTasks, type CaptureResult } from './CaptureEngine';
+import { runCapture, buildAddressTasks, autoZoomForRadius, type CaptureResult } from './CaptureEngine';
 
 interface Props {
   token: string;
@@ -32,15 +32,15 @@ interface BatchAddress {
 const AMAP_KEY = 'a7330f3c7b474880113a2f76cd02d9b4';
 const CIRCLE_SOURCE = 'radius-circle';
 
-async function amapGeocode(address: string): Promise<SearchResult[]> {
-  const url = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(address)}&key=${AMAP_KEY}&output=json`;
+async function amapGeocode(keyword: string): Promise<SearchResult[]> {
+  const url = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(keyword)}&key=${AMAP_KEY}&output=json&offset=20&page=1&extensions=base`;
   const res = await fetch(url);
   const data = await res.json();
-  if (data.status !== '1' || !data.geocodes?.length) return [];
-  return data.geocodes.map((g: any) => ({
-    name: g.formatted_address,
-    address: g.adcode,
-    location: g.location,
+  if (data.status !== '1' || !data.pois?.length) return [];
+  return data.pois.map((p: any) => ({
+    name: p.name,
+    address: p.address || `${p.pname}${p.cityname}${p.adname}`,
+    location: p.location,
   }));
 }
 
@@ -237,15 +237,16 @@ export default function AddressMode({ token, onComplete }: Props) {
           selectedAddress.lat,
           radiusMeters,
           selectedAddress.name,
-          overlapPct / 100,
-          zoomLevel,
         );
+        const canvas = map.getCanvas();
+        const autoZoom = autoZoomForRadius(radiusMeters, canvas.width, selectedAddress.lat);
+        const effectiveZoom = Math.min(autoZoom, zoomLevel);
         setProgressTotal(tasks.length);
-        addLog('info', `共 ${tasks.length} 个截图任务`);
+        addLog('info', `共 ${tasks.length} 个截图任务，zoom=${effectiveZoom}`);
         const results = await runCapture({
           map,
           tasks,
-          zoomLevel,
+          zoomLevel: effectiveZoom,
           mode: 'address',
           label: selectedAddress.name,
           enterpriseId: null,
@@ -266,17 +267,19 @@ export default function AddressMode({ token, onComplete }: Props) {
             addr.lat!,
             radiusMeters,
             addr.text,
-            overlapPct / 100,
-            zoomLevel,
           );
           allTasks = allTasks.concat(tasks);
         }
+        const canvas = map.getCanvas();
+        const firstValid = valid[0];
+        const autoZoom = autoZoomForRadius(radiusMeters, canvas.width, firstValid.lat!);
+        const effectiveZoom = Math.min(autoZoom, zoomLevel);
         setProgressTotal(allTasks.length);
-        addLog('info', `批量任务共 ${allTasks.length} 个截图`);
+        addLog('info', `批量任务共 ${allTasks.length} 个截图，zoom=${effectiveZoom}`);
         const results = await runCapture({
           map,
           tasks: allTasks,
-          zoomLevel,
+          zoomLevel: effectiveZoom,
           mode: 'address',
           onProgress: (done, total) => { setProgress(done); setProgressTotal(total); },
           onLog: (msg) => addLog('info', msg),
@@ -290,7 +293,7 @@ export default function AddressMode({ token, onComplete }: Props) {
     } finally {
       setIsCapturing(false);
     }
-  }, [mode, selectedAddress, batchAddresses, radiusMeters, overlapPct, zoomLevel, addLog, onComplete]);
+  }, [mode, selectedAddress, batchAddresses, radiusMeters, zoomLevel, addLog, onComplete]);
 
   const handleStop = useCallback(() => {
     abortRef.current = true;
@@ -434,8 +437,8 @@ export default function AddressMode({ token, onComplete }: Props) {
 
             <div className="flex flex-col gap-1">
               <div className="flex justify-between text-xs text-slate-400">
-                <span>缩放级别</span>
-                <span className="text-cyan-400">{zoomLevel}</span>
+                <span>最大缩放级别</span>
+                <span className="text-cyan-400">{zoomLevel}（自动适配半径）</span>
               </div>
               <input
                 type="range"
