@@ -155,7 +155,7 @@ export default function ReportOverview({ stats }: Props) {
                 <Tooltip content={<CustomTooltip />} />
                 <Legend
                   formatter={(value, entry) => {
-                    const d = entry.payload as typeof probData[0];
+                    const d = entry.payload as unknown as typeof probData[0];
                     return (
                       <span className="text-[11px] text-slate-300">
                         {value} {d.value.toLocaleString()}家 ({d.pct}%)

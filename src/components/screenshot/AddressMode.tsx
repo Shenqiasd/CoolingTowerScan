@@ -230,7 +230,7 @@ export default function AddressMode({ token, onComplete }: Props) {
     try {
       if (mode === 'single') {
         if (!selectedAddress) { addLog('error', '请先选择地址'); setIsCapturing(false); return; }
-        const gridCount = estimateAddressGridCount(radiusMeters, zoomLevel, selectedAddress.lat);
+        const gridCount = estimateAddressGridCount(radiusMeters, zoomLevel, 1280, 720, selectedAddress.lat).total;
         addLog('info', `${selectedAddress.name}：zoom=${zoomLevel}，预计 ${gridCount} 张瓦片拼合`);
         setProgressTotal(gridCount);
         const result = await runAddressCapture({
@@ -254,7 +254,7 @@ export default function AddressMode({ token, onComplete }: Props) {
       } else {
         const valid = batchAddresses.filter((a) => a.status === 'done' && a.lng !== undefined && a.lat !== undefined);
         if (!valid.length) { addLog('error', '没有可用的已解析地址'); setIsCapturing(false); return; }
-        const totalTiles = valid.reduce((sum, a) => sum + estimateAddressGridCount(radiusMeters, zoomLevel, a.lat!), 0);
+        const totalTiles = valid.reduce((sum, a) => sum + estimateAddressGridCount(radiusMeters, zoomLevel, 1280, 720, a.lat!).total, 0);
         setProgressTotal(totalTiles);
         addLog('info', `批量 ${valid.length} 个地址，预计共 ${totalTiles} 张瓦片`);
         let doneCount = 0;
@@ -275,7 +275,7 @@ export default function AddressMode({ token, onComplete }: Props) {
           });
           if (result) {
             allResults.push(result);
-            doneCount += estimateAddressGridCount(radiusMeters, zoomLevel, addr.lat!);
+            doneCount += estimateAddressGridCount(radiusMeters, zoomLevel, 1280, 720, addr.lat!).total;
           }
         }
         addLog('info', `批量完成，共 ${allResults.length} 张拼合图`);

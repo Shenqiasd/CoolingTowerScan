@@ -85,7 +85,8 @@ export default function DetectionPanel({
       hasCoolingTower: result.has_cooling_tower,
       count: result.count,
       confidence: result.confidence,
-      imageUrl: shot.publicUrl,
+      imageUrl: shot.publicUrl ?? shot.dataUrl ?? null,
+      dataUrl: shot.dataUrl ?? null,
       publicUrl: shot.publicUrl,
       detections: result.detections.map(d => ({
         class_name: d.class_name,
@@ -104,7 +105,9 @@ export default function DetectionPanel({
     hasCoolingTower: false,
     count: 0,
     confidence: 0,
-    imageUrl: shot.publicUrl,
+    imageUrl: shot.publicUrl ?? shot.dataUrl ?? null,
+    dataUrl: shot.dataUrl ?? null,
+    publicUrl: shot.publicUrl,
     error: err instanceof Error ? err.message : String(err),
     detections: [],
   }), []);

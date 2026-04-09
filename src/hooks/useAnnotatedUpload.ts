@@ -9,7 +9,8 @@ export function useAnnotatedUpload() {
     onUpdate: (filename: string, update: Partial<ScanDetection>) => void
   ): Promise<void> => {
     if (!detection.hasCoolingTower || !detection.detections.length) return;
-    const imageUrl = detection.imageUrl || detection.publicUrl;
+    // Prefer dataUrl (base64, no CORS) over publicUrl for canvas annotation
+    const imageUrl = detection.dataUrl || detection.imageUrl || detection.publicUrl;
     if (!imageUrl) return;
 
     onUpdate(detection.screenshotFilename, { uploadStatus: 'uploading' });

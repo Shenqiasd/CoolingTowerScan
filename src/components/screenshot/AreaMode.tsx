@@ -52,6 +52,7 @@ export default function AreaMode({ token, onComplete }: Props) {
     if (!map || !map.isStyleLoaded()) return;
     map.setZoom(zoom);
     const b = map.getBounds();
+    if (!b) return;
     const sLng = b.getEast() - b.getWest();
     const sLat = b.getNorth() - b.getSouth();
     const ratio = overlap / 100;

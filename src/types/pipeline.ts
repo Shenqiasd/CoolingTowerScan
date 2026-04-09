@@ -27,6 +27,7 @@ export interface ScanDetection {
   count: number;
   confidence: number;
   imageUrl: string | null;
+  dataUrl?: string | null;      // base64 data URL (available before upload)
   publicUrl?: string | null;    // original uploaded URL
   annotatedUrl?: string | null; // annotated image URL (bbox drawn)
   uploadStatus?: 'idle' | 'uploading' | 'done' | 'failed';
