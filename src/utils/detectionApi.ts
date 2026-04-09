@@ -28,25 +28,33 @@ export interface DetectionApiResult {
 }
 
 export async function detectImage(
-  imageBlob: Blob,
+  imageSource: Blob | string,
   filename: string,
   apiUrl?: string,
   conf?: number,
 ): Promise<DetectionApiResult> {
   const url = apiUrl || getDetectionApiUrl();
-  const formData = new FormData();
-  formData.append('image', imageBlob, filename);
-
   const confParam = conf !== undefined ? `?conf=${conf}` : '';
+
+  // If it's a remote URL, let the server download it (avoids CORS)
+  if (typeof imageSource === 'string' && imageSource.startsWith('http')) {
+    const response = await fetch(`${url}/detect/url${confParam}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_url: imageSource }),
+    });
+    if (!response.ok) throw new Error(`检测失败: ${response.status} ${response.statusText}`);
+    return response.json();
+  }
+
+  // Blob: upload directly
+  const formData = new FormData();
+  formData.append('image', imageSource as Blob, filename);
   const response = await fetch(`${url}/detect${confParam}`, {
     method: 'POST',
     body: formData,
   });
-
-  if (!response.ok) {
-    throw new Error(`检测失败: ${response.status} ${response.statusText}`);
-  }
-
+  if (!response.ok) throw new Error(`检测失败: ${response.status} ${response.statusText}`);
   return response.json();
 }
 

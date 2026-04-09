@@ -69,10 +69,13 @@ export default function DetectionPanel({
   // ── detection core ────────────────────────────────────────────────────────
 
   const runDetection = useCallback(async (shot: CaptureResult): Promise<ScanDetection> => {
-    const src = shot.dataUrl || shot.publicUrl;
+    // Prefer publicUrl (server-side download avoids CORS), fallback to dataUrl blob upload
+    const src = shot.publicUrl || shot.dataUrl;
     if (!src) throw new Error('no image source');
-    const blob = await (await fetch(src)).blob();
-    const result = await detectImage(blob, shot.filename, apiUrl, conf);
+    const imageSource: Blob | string = src.startsWith('http')
+      ? src
+      : await (await fetch(src)).blob();
+    const result = await detectImage(imageSource, shot.filename, apiUrl, conf);
     if (shot.screenshotId) {
       await saveDetectionResult(shot.screenshotId, shot.enterpriseId ?? null, result);
     }

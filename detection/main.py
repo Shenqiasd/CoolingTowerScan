@@ -11,7 +11,9 @@
 """
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from pathlib import Path
+import requests as http_requests
 import detector
 
 app = FastAPI(title="CoolingTower Detection API", version="1.0.0")
@@ -39,6 +41,30 @@ def model_info():
         "weights_path": str(WEIGHTS_PATH) if WEIGHTS_PATH.exists() else "yolov8n.pt (fallback)",
         "classes": model.names,
     }
+
+
+class DetectUrlRequest(BaseModel):
+    image_url: str
+
+
+@app.post("/detect/url")
+async def detect_url(body: DetectUrlRequest, conf: float = 0.25):
+    """服务端下载图片再识别，避免前端 CORS 问题"""
+    try:
+        resp = http_requests.get(body.image_url, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"图片下载失败: {str(e)}")
+
+    if len(resp.content) == 0:
+        raise HTTPException(status_code=400, detail="图片内容为空")
+
+    try:
+        result = detector.detect(resp.content, conf_threshold=conf)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"推理失败: {str(e)}")
+
+    return result
 
 
 @app.post("/detect")
