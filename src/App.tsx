@@ -100,11 +100,12 @@ function App() {
     clearDetections();
   }, [clearDetections]);
 
-  const handleUpdate = useCallback(async (id: string, updates: Partial<Enterprise>) => {
+  const handleUpdate = useCallback(async (id: string, updates: Partial<Enterprise>): Promise<boolean> => {
     await updateEnterprise(id, updates);
     if (selectedEnterprise?.id === id) {
       setSelectedEnterprise((prev) => prev ? { ...prev, ...updates } : null);
     }
+    return true;
   }, [updateEnterprise, selectedEnterprise]);
 
   const handleDetectionComplete = useCallback((results: ScanDetection[]) => {
@@ -280,7 +281,7 @@ function App() {
                         <MapView
                           markers={markers}
                           flyTo={flyTo}
-                          onSelectEnterprise={handleSelectFromMap}
+                          onSelect={handleSelectFromMap}
                         />
                       </Suspense>
                     ) : (
@@ -288,7 +289,7 @@ function App() {
                         enterprises={enterprises}
                         loading={loading}
                         onSelect={handleSelectFromList}
-                        selectedId={selectedEnterprise?.id}
+                        selectedId={selectedEnterprise?.id ?? null}
                         page={page}
                         pageSize={pageSize}
                         totalPages={totalPages}
