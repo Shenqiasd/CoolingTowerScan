@@ -1,5 +1,6 @@
 const API_URL_KEY = 'detection_api_url';
-const DEFAULT_URL = 'http://localhost:8000';
+const ENV_URL = (import.meta.env.VITE_DETECTION_API_URL || '').trim();
+const DEFAULT_URL = ENV_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
 export function getDetectionApiUrl(): string {
   return localStorage.getItem(API_URL_KEY) || DEFAULT_URL;
@@ -34,6 +35,9 @@ export async function detectImage(
   conf?: number,
 ): Promise<DetectionApiResult> {
   const url = apiUrl || getDetectionApiUrl();
+  if (!url) {
+    throw new Error('检测服务地址未配置');
+  }
   const confParam = conf !== undefined ? `?conf=${conf}` : '';
 
   // If it's a remote URL, let the server download it (avoids CORS)
@@ -60,6 +64,9 @@ export async function detectImage(
 
 export async function checkHealth(apiUrl?: string): Promise<boolean> {
   const url = apiUrl || getDetectionApiUrl();
+  if (!url) {
+    return false;
+  }
   try {
     const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
     return res.ok;

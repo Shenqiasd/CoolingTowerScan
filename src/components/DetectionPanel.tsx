@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Radar, Play, Square, CheckCircle2, X, Settings2 } from 'lucide-react';
 import type { CaptureResult, ScanDetection, DetectionFilters } from '../types/pipeline';
 import { detectImage, getDetectionApiUrl, setDetectionApiUrl, checkHealth } from '../utils/detectionApi';
@@ -6,6 +6,7 @@ import { saveDetectionResult, clearDetectionResults } from '../utils/detectionPe
 import { useScreenshotFilters, DEFAULT_FILTERS } from '../hooks/useScreenshotFilters';
 import { useAnnotatedUpload } from '../hooks/useAnnotatedUpload';
 import { useEnterpriseMatch } from '../hooks/useEnterpriseMatch';
+import { buildErrorDetection, buildScanDetection } from '../utils/detectionResultMapper';
 import ScreenshotGrid from './detection/ScreenshotGrid';
 import DetectionFilterBar from './detection/DetectionFilterBar';
 import FloatingActionBar from './detection/FloatingActionBar';
@@ -56,7 +57,7 @@ export default function DetectionPanel({
   }, [apiUrl]);
 
   const handleSaveApiUrl = useCallback(() => {
-    setDetectionApiUrl(apiUrl);
+    setDetectionApiUrl(apiUrl.trim());
     setShowSettings(false);
     handleCheckHealth();
   }, [apiUrl, handleCheckHealth]);
@@ -65,6 +66,10 @@ export default function DetectionPanel({
     setConf(v);
     localStorage.setItem(CONF_KEY, String(v));
   }, []);
+
+  useEffect(() => {
+    handleCheckHealth();
+  }, [handleCheckHealth]);
 
   // ── detection core ────────────────────────────────────────────────────────
 
@@ -79,41 +84,12 @@ export default function DetectionPanel({
     if (shot.screenshotId) {
       await saveDetectionResult(shot.screenshotId, shot.enterpriseId ?? null, result);
     }
-    return {
-      screenshotFilename: shot.filename,
-      screenshotId: shot.screenshotId,
-      enterpriseId: shot.enterpriseId ?? null,
-      lng: shot.lng,
-      lat: shot.lat,
-      hasCoolingTower: result.has_cooling_tower,
-      count: result.count,
-      confidence: result.confidence,
-      imageUrl: shot.publicUrl ?? shot.dataUrl ?? null,
-      dataUrl: shot.dataUrl ?? null,
-      publicUrl: shot.publicUrl,
-      detections: result.detections.map(d => ({
-        class_name: d.class_name,
-        confidence: d.confidence,
-        x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2,
-      })),
-    };
+    return buildScanDetection(shot, result);
   }, [apiUrl, conf]);
 
-  const makeErrorDet = useCallback((shot: CaptureResult, err: unknown): ScanDetection => ({
-    screenshotFilename: shot.filename,
-    screenshotId: shot.screenshotId,
-    enterpriseId: shot.enterpriseId ?? null,
-    lng: shot.lng,
-    lat: shot.lat,
-    hasCoolingTower: false,
-    count: 0,
-    confidence: 0,
-    imageUrl: shot.publicUrl ?? shot.dataUrl ?? null,
-    dataUrl: shot.dataUrl ?? null,
-    publicUrl: shot.publicUrl,
-    error: err instanceof Error ? err.message : String(err),
-    detections: [],
-  }), []);
+  const makeErrorDet = useCallback((shot: CaptureResult, err: unknown): ScanDetection => (
+    buildErrorDetection(shot, err)
+  ), []);
 
   const handlePostDetection = useCallback(async (newTowerDets: ScanDetection[]) => {
     await uploadAllAnnotated(newTowerDets, updateDetection);
@@ -333,7 +309,7 @@ export default function DetectionPanel({
           {!isDetecting ? (
             <button
               onClick={handleDetect}
-              disabled={screenshots.length === 0}
+              disabled={screenshots.length === 0 || !apiUrl.trim()}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white rounded-md transition-colors"
             >
               <Play className="w-3.5 h-3.5" />
@@ -394,6 +370,11 @@ export default function DetectionPanel({
               </span>
             )}
           </div>
+          {!apiUrl.trim() && (
+            <p className="text-xs text-amber-400">
+              当前未配置检测服务地址。线上环境请设置 `VITE_DETECTION_API_URL` 或在这里手动填写 Railway 检测服务域名。
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <label className="text-xs text-slate-400 w-20 shrink-0">
               置信度阈值 <span className="text-white">{conf.toFixed(2)}</span>
@@ -470,4 +451,3 @@ export default function DetectionPanel({
     </div>
   );
 }
-

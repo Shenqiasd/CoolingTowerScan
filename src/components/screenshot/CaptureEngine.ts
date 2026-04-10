@@ -1,5 +1,7 @@
 import mapboxgl from 'mapbox-gl';
 import { supabase } from '../../lib/supabase';
+import { SCREENSHOT_STORAGE_BUCKET } from '../../utils/storageBuckets';
+import { buildStitchLayout } from '../../utils/stitchLayout';
 
 export interface CaptureTask {
   row: number;
@@ -18,6 +20,7 @@ export interface CaptureResult {
   col: number;
   lng: number;
   lat: number;
+  source: 'area' | 'address';
   addressLabel?: string;
   enterpriseId?: string | null;
 }
@@ -61,13 +64,13 @@ function sleep(ms: number) {
 async function uploadToStorage(
   blob: Blob,
   path: string
-): Promise<string | null> {
+): Promise<{ publicUrl: string | null; error: string | null }> {
   const { error } = await supabase.storage
-    .from('scan-screenshots')
+    .from(SCREENSHOT_STORAGE_BUCKET)
     .upload(path, blob, { contentType: 'image/png', upsert: true });
-  if (error) return null;
-  const { data } = supabase.storage.from('scan-screenshots').getPublicUrl(path);
-  return data.publicUrl;
+  if (error) return { publicUrl: null, error: error.message };
+  const { data } = supabase.storage.from(SCREENSHOT_STORAGE_BUCKET).getPublicUrl(path);
+  return { publicUrl: data.publicUrl, error: null };
 }
 
 export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]> {
@@ -110,7 +113,7 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
     const filename = `scan_R${task.row}_C${task.col}_Z${zoomLevel}${addrSuffix}.png`;
 
     if (skipUpload) {
-      results.push({ filename, dataUrl, publicUrl: null, screenshotId: null, row: task.row, col: task.col, lng: task.lng, lat: task.lat, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
+      results.push({ filename, dataUrl, publicUrl: null, screenshotId: null, row: task.row, col: task.col, lng: task.lng, lat: task.lat, source: mode, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
       log(`[${i + 1}/${tasks.length}] 瓦片 R${task.row}C${task.col} 截图完成`, 'info');
       continue;
     }
@@ -118,7 +121,10 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
     const storagePath = `${sessionId ?? 'nosession'}/${filename}`;
     const res = await fetch(dataUrl);
     const blob = await res.blob();
-    const publicUrl = await uploadToStorage(blob, storagePath);
+    const { publicUrl, error: uploadError } = await uploadToStorage(blob, storagePath);
+    if (uploadError) {
+      log(`[${i + 1}/${tasks.length}] 上传失败: ${uploadError}`, 'error');
+    }
 
     let screenshotId: string | null = null;
     if (sessionId) {
@@ -136,7 +142,7 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
       screenshotId = ssData?.id ?? null;
     }
 
-    results.push({ filename, dataUrl, publicUrl, screenshotId, row: task.row, col: task.col, lng: task.lng, lat: task.lat, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
+    results.push({ filename, dataUrl, publicUrl, screenshotId, row: task.row, col: task.col, lng: task.lng, lat: task.lat, source: mode, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
     log(`[${i + 1}/${tasks.length}] ${filename} ${publicUrl ? '✓ 已上传' : '(上传失败)'}`, publicUrl ? 'success' : 'error');
   }
 
@@ -315,6 +321,7 @@ export async function stitchTiles(
   tiles: CaptureResult[],
   gridCols: number,
   gridRows: number,
+  overlapRatio = 0,
 ): Promise<Blob> {
   // Load first tile to get dimensions
   const firstImg = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -327,15 +334,40 @@ export async function stitchTiles(
   const tileH = firstImg.naturalHeight;
 
   const canvas = document.createElement('canvas');
-  canvas.width = gridCols * tileW;
-  canvas.height = gridRows * tileH;
+  const layout = buildStitchLayout({
+    tileWidth: tileW,
+    tileHeight: tileH,
+    gridCols,
+    gridRows,
+    overlapRatio,
+  });
+
+  canvas.width = layout.width;
+  canvas.height = layout.height;
   const ctx = canvas.getContext('2d')!;
 
   await Promise.all(tiles.map(tile =>
     new Promise<void>((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        ctx.drawImage(img, tile.col * tileW, tile.row * tileH);
+        const tileLayout = layout.tiles.find(
+          (entry) => entry.row === tile.row && entry.col === tile.col,
+        );
+        if (!tileLayout) {
+          reject(new Error(`missing stitch layout for tile ${tile.row},${tile.col}`));
+          return;
+        }
+        ctx.drawImage(
+          img,
+          tileLayout.srcX,
+          tileLayout.srcY,
+          tileLayout.srcWidth,
+          tileLayout.srcHeight,
+          tileLayout.destX,
+          tileLayout.destY,
+          tileLayout.srcWidth,
+          tileLayout.srcHeight,
+        );
         resolve();
       };
       img.onerror = reject;
@@ -396,15 +428,18 @@ export async function runAddressCapture(opts: {
 
   log(`拼合 ${tiles.length} 张瓦片中...`, 'info');
 
-  const stitchedBlob = await stitchTiles(tiles, gridCols, gridRows);
+  const stitchedBlob = await stitchTiles(tiles, gridCols, gridRows, overlapRatio);
 
   // Upload stitched image
   const safeLabel = addressLabel.slice(0, 20).replace(/[/\\?%*:|"<>]/g, '_');
   const filename = `stitched_Z${zoomLevel}_${safeLabel}.png`;
   const storagePath = `${sessionId ?? 'nosession'}/stitched/${filename}`;
-  const publicUrl = await uploadToStorage(stitchedBlob, storagePath);
+  const { publicUrl, error: uploadError } = await uploadToStorage(stitchedBlob, storagePath);
+  if (uploadError) {
+    log(`拼合图上传失败: ${uploadError}`, 'error');
+  }
 
-  log(`拼合完成 (${gridCols * (tiles[0] ? 1 : 0)}×${gridRows} → ${Math.round(stitchedBlob.size / 1024)}KB)，${publicUrl ? '✓ 已上传' : '上传失败'}`, publicUrl ? 'success' : 'error');
+  log(`拼合完成 (${gridCols}×${gridRows} → ${Math.round(stitchedBlob.size / 1024)}KB)，${publicUrl ? '✓ 已上传' : '上传失败'}`, publicUrl ? 'success' : 'error');
 
   // Insert single scan_screenshot record for the stitched image
   let screenshotId: string | null = null;
@@ -427,6 +462,6 @@ export async function runAddressCapture(opts: {
   return {
     filename, dataUrl, publicUrl, screenshotId,
     row: 0, col: 0, lng: centerLng, lat: centerLat,
-    addressLabel, enterpriseId,
+    source: 'address', addressLabel, enterpriseId,
   };
 }

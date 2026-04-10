@@ -10,9 +10,19 @@ from ultralytics import YOLO
 from PIL import Image
 
 WEIGHTS_DIR = Path(__file__).parent / "weights"
-CUSTOM_WEIGHTS = WEIGHTS_DIR / "best.pt"
+WEIGHT_CANDIDATES = [
+    WEIGHTS_DIR / "best.pt",
+    WEIGHTS_DIR / "train_optimized_v2" / "weights" / "best.pt",
+]
 
 _model: Optional[YOLO] = None
+
+
+def resolve_weights_path() -> Path:
+    for candidate in WEIGHT_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return WEIGHT_CANDIDATES[0]
 
 
 def get_model() -> YOLO:
@@ -20,14 +30,16 @@ def get_model() -> YOLO:
     if _model is not None:
         return _model
 
-    if not CUSTOM_WEIGHTS.exists():
+    weights_path = resolve_weights_path()
+
+    if not weights_path.exists():
         raise RuntimeError(
-            f"权重文件不存在: {CUSTOM_WEIGHTS}。"
+            f"权重文件不存在: {weights_path}。"
             "请将 best.pt 上传到 Supabase Storage detection-weights/best.pt"
         )
 
-    print(f"[detector] 加载 YOLOv8 权重: {CUSTOM_WEIGHTS}")
-    _model = YOLO(str(CUSTOM_WEIGHTS))
+    print(f"[detector] 加载 YOLOv8 权重: {weights_path}")
+    _model = YOLO(str(weights_path))
     print(f"[detector] 模型加载完成，类别: {_model.names}")
     return _model
 

@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Normalize any bundled training artifact into the runtime path first
+if [ ! -f "weights/best.pt" ] && [ -f "weights/train_optimized_v2/weights/best.pt" ]; then
+  echo "[startup] Using bundled train_optimized_v2 weight artifact"
+  cp "weights/train_optimized_v2/weights/best.pt" "weights/best.pt"
+fi
+
 # Download weights from Supabase Storage if not present
 if [ ! -f "weights/best.pt" ]; then
   echo "[startup] Downloading weights from Supabase Storage..."

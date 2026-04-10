@@ -25,20 +25,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-WEIGHTS_PATH = Path(__file__).parent / "weights" / "best.pt"
-
-
 @app.get("/health")
 def health():
-    return {"status": "ok", "custom_weights": WEIGHTS_PATH.exists()}
+    weights_path = detector.resolve_weights_path()
+    return {
+        "status": "ok",
+        "custom_weights": weights_path.exists(),
+        "weights_path": str(weights_path),
+    }
 
 
 @app.get("/model-info")
 def model_info():
+    weights_path = detector.resolve_weights_path()
     model = detector.get_model()
     return {
-        "using_custom_weights": WEIGHTS_PATH.exists(),
-        "weights_path": str(WEIGHTS_PATH) if WEIGHTS_PATH.exists() else "yolov8n.pt (fallback)",
+        "using_custom_weights": weights_path.exists(),
+        "weights_path": str(weights_path),
         "classes": model.names,
     }
 

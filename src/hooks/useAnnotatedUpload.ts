@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { generateAnnotatedImage } from '../utils/annotatedImageGenerator';
+import { SCREENSHOT_STORAGE_BUCKET } from '../utils/storageBuckets';
 import type { ScanDetection } from '../types/pipeline';
 
 export function useAnnotatedUpload() {
@@ -21,11 +22,11 @@ export function useAnnotatedUpload() {
 
       const path = `annotated/${detection.screenshotFilename}`;
       const { error } = await supabase.storage
-        .from('scan-screenshots')
+        .from(SCREENSHOT_STORAGE_BUCKET)
         .upload(path, blob, { contentType: 'image/png', upsert: true });
       if (error) throw error;
 
-      const { data } = supabase.storage.from('scan-screenshots').getPublicUrl(path);
+      const { data } = supabase.storage.from(SCREENSHOT_STORAGE_BUCKET).getPublicUrl(path);
       const annotatedUrl = data.publicUrl;
 
       // Update scan_screenshots table
@@ -45,7 +46,8 @@ export function useAnnotatedUpload() {
       }
 
       onUpdate(detection.screenshotFilename, { annotatedUrl, uploadStatus: 'done' });
-    } catch {
+    } catch (error) {
+      console.error('Annotated upload failed:', error);
       onUpdate(detection.screenshotFilename, { uploadStatus: 'failed' });
     }
   }, []);
