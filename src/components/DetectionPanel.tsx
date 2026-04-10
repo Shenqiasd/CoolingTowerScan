@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, type SetStateAction } from 'react';
 import { Radar, Play, Square, CheckCircle2, X, Settings2 } from 'lucide-react';
 import type { CaptureResult, ScanDetection, DetectionFilters } from '../types/pipeline';
 import { detectImage, getDetectionApiUrl, setDetectionApiUrl, checkHealth } from '../utils/detectionApi';
@@ -7,6 +7,7 @@ import { useScreenshotFilters, DEFAULT_FILTERS } from '../hooks/useScreenshotFil
 import { useAnnotatedUpload } from '../hooks/useAnnotatedUpload';
 import { useEnterpriseMatch } from '../hooks/useEnterpriseMatch';
 import { buildErrorDetection, buildScanDetection } from '../utils/detectionResultMapper';
+import { patchDetection } from '../utils/detectionState';
 import { getScreenshotIdentity, isDetectionForScreenshot } from '../utils/screenshotIdentity';
 import ScreenshotGrid from './detection/ScreenshotGrid';
 import DetectionFilterBar from './detection/DetectionFilterBar';
@@ -23,7 +24,7 @@ function loadConf(): number {
 interface Props {
   screenshots: CaptureResult[];
   detections: ScanDetection[];
-  onDetectionsUpdate: (detections: ScanDetection[]) => void;
+  onDetectionsUpdate: (update: SetStateAction<ScanDetection[]>) => void;
   onStatusChange: (status: 'detecting' | 'complete' | 'idle') => void;
 }
 
@@ -48,11 +49,8 @@ export default function DetectionPanel({
   // ── helpers ──────────────────────────────────────────────────────────────
 
   const updateDetection = useCallback((target: ScanDetection, update: Partial<ScanDetection>) => {
-    const targetIdentity = getScreenshotIdentity(target);
-    onDetectionsUpdate(
-      detections.map((d) => getScreenshotIdentity(d) === targetIdentity ? { ...d, ...update } : d)
-    );
-  }, [detections, onDetectionsUpdate]);
+    onDetectionsUpdate((prev) => patchDetection(prev, target, update));
+  }, [onDetectionsUpdate]);
 
   const handleCheckHealth = useCallback(async () => {
     setApiHealthy(await checkHealth(apiUrl));

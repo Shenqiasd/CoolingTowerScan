@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, lazy, Suspense, useEffect } from 'react';
+import { useState, useCallback, useRef, lazy, Suspense, useEffect, type SetStateAction } from 'react';
 import { Map, List, Loader2 } from 'lucide-react';
 import MapScreenshot from './components/screenshot';
 import type { ScreenshotResult } from './components/screenshot';
@@ -251,8 +251,11 @@ function App() {
     handleDataImported();
   }, [handleDataImported]);
 
-  const handleDetectionsUpdate = useCallback((detections: ScanDetection[]) => {
-    setSession((prev) => ({ ...prev, detections }));
+  const handleDetectionsUpdate = useCallback((update: SetStateAction<ScanDetection[]>) => {
+    setSession((prev) => ({
+      ...prev,
+      detections: typeof update === 'function' ? update(prev.detections) : update,
+    }));
   }, []);
 
   const handleDetectionStatusChange = useCallback((status: 'detecting' | 'complete' | 'idle') => {
