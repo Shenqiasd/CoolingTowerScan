@@ -17,7 +17,7 @@ export function useEnterpriseMatch() {
   const confirm = useCallback(async (
     detection: ScanDetection,
     enterpriseId: string,
-    onUpdate: (filename: string, update: Partial<ScanDetection>) => void
+    onUpdate: (detection: ScanDetection, update: Partial<ScanDetection>) => void
   ): Promise<void> => {
     await confirmEnterpriseMatch(detection.screenshotId!, enterpriseId, {
       hasCoolingTower: detection.hasCoolingTower,
@@ -25,7 +25,7 @@ export function useEnterpriseMatch() {
       confidence: detection.confidence,
       annotatedUrl: detection.annotatedUrl,
     });
-    onUpdate(detection.screenshotFilename, {
+    onUpdate(detection, {
       enterpriseId,
       matchedEnterpriseId: enterpriseId,
     });

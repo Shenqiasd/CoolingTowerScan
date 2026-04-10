@@ -10,7 +10,7 @@ interface Props {
   detections: ScanDetection[];
   initialIndex: number;
   onClose: () => void;
-  onReview: (filename: string, status: 'confirmed' | 'rejected') => void;
+  onReview: (detection: ScanDetection, status: 'confirmed' | 'rejected') => void;
   onRedetect: (detection: ScanDetection) => void;
   onLinkEnterprise: (detection: ScanDetection) => void;
 }
@@ -114,7 +114,7 @@ export default function ReviewModal({
           .update({ review_status: status })
           .eq('id', detection.screenshotId);
       }
-      onReview(detection.screenshotFilename, status);
+      onReview(detection, status);
       setIndex(i => Math.min(detections.length - 1, i + 1));
     } finally {
       setSubmitting(false);

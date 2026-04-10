@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { CaptureResult, ScanDetection } from '../types/pipeline.ts';
-import { isDetectionForScreenshot } from './screenshotIdentity.ts';
+import { findDetectionForScreenshot, isDetectionForScreenshot } from './screenshotIdentity.ts';
 
 const shot: CaptureResult = {
   filename: 'stitched_Z18_same.png',
   dataUrl: 'data:image/png;base64,abc',
   publicUrl: null,
   screenshotId: 'shot-new',
+  sessionId: 'session-new',
   row: 0,
   col: 0,
   lng: 121.5,
@@ -50,4 +51,19 @@ test('isDetectionForScreenshot falls back to filename when screenshot id is miss
   };
 
   assert.equal(isDetectionForScreenshot(oldStyleDetection, oldStyleShot), true);
+});
+
+test('findDetectionForScreenshot prefers screenshot id over duplicated filenames', () => {
+  const freshDetection: ScanDetection = {
+    ...staleDetection,
+    screenshotId: 'shot-new',
+    hasCoolingTower: true,
+    count: 6,
+    confidence: 0.5,
+  };
+
+  const matched = findDetectionForScreenshot([staleDetection, freshDetection], shot);
+
+  assert.equal(matched?.screenshotId, 'shot-new');
+  assert.equal(matched?.count, 6);
 });

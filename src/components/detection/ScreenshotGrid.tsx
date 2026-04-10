@@ -4,14 +4,15 @@ import {
   CheckCircle2, XCircle, AlertCircle, Clock,
 } from 'lucide-react';
 import type { ScanDetection, CaptureResult } from '../../types/pipeline';
+import { findDetectionForScreenshot, getScreenshotIdentity } from '../../utils/screenshotIdentity';
 import UploadStatusBadge from './UploadStatusBadge';
 
 interface Props {
   screenshots: CaptureResult[];
   detections: ScanDetection[];
   selected: Set<string>;
-  onSelect: (filename: string, checked: boolean) => void;
-  onSelectAll: (filenames: string[]) => void;
+  onSelect: (screenshotIdentity: string, checked: boolean) => void;
+  onSelectAll: (screenshotIdentities: string[]) => void;
   onClearSelection: () => void;
   onReview: (detection: ScanDetection) => void;
   confThreshold: number;
@@ -82,25 +83,21 @@ export default function ScreenshotGrid({
 }: Props) {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  const detectionMap = new Map<string, ScanDetection>(
-    detections.map(d => [d.screenshotFilename, d])
-  );
-
-  const allFilenames = screenshots.map(s => s.filename);
-  const allSelected = allFilenames.length > 0 && allFilenames.every(f => selected.has(f));
-  const someSelected = !allSelected && allFilenames.some(f => selected.has(f));
+  const allScreenshotIdentities = screenshots.map((s) => getScreenshotIdentity(s));
+  const allSelected = allScreenshotIdentities.length > 0 && allScreenshotIdentities.every((id) => selected.has(id));
+  const someSelected = !allSelected && allScreenshotIdentities.some((id) => selected.has(id));
 
   const handleSelectAll = useCallback(() => {
     if (allSelected) {
       onClearSelection();
     } else {
-      onSelectAll(allFilenames);
+      onSelectAll(allScreenshotIdentities);
     }
-  }, [allSelected, allFilenames, onSelectAll, onClearSelection]);
+  }, [allSelected, allScreenshotIdentities, onSelectAll, onClearSelection]);
 
   const counts: Record<Category, number> = { tower: 0, suspicious: 0, none: 0, pending: 0, error: 0 };
   for (const s of screenshots) {
-    counts[getCategory(detectionMap.get(s.filename), confThreshold)]++;
+    counts[getCategory(findDetectionForScreenshot(detections, s), confThreshold)]++;
   }
 
   const summaryItems: { cat: Category; label: string; color: string }[] = [
@@ -164,17 +161,18 @@ export default function ScreenshotGrid({
       {viewMode === 'grid' && (
         <div className="grid grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
           {screenshots.map(shot => {
-            const det = detectionMap.get(shot.filename);
+            const shotIdentity = getScreenshotIdentity(shot);
+            const det = findDetectionForScreenshot(detections, shot);
             const cat = getCategory(det, confThreshold);
-            const isSelected = selected.has(shot.filename);
-            const imgSrc = shot.dataUrl || shot.publicUrl || det?.publicUrl || det?.imageUrl || '';
+            const isSelected = selected.has(shotIdentity);
+            const imgSrc = shot.dataUrl || shot.publicUrl || det?.annotatedUrl || det?.publicUrl || det?.imageUrl || '';
             const shortName = shot.filename.length > 20
               ? shot.filename.slice(0, 9) + '…' + shot.filename.slice(-8)
               : shot.filename;
 
             return (
               <div
-                key={shot.filename}
+                key={shotIdentity}
                 className={`relative flex flex-col rounded-lg border bg-slate-800 overflow-hidden
                   ${cardBorderColor[cat]}
                   ${isSelected ? 'ring-2 ring-cyan-500' : ''}
@@ -200,7 +198,7 @@ export default function ScreenshotGrid({
                   {/* Top-left: checkbox */}
                   <button
                     className="absolute top-1 left-1 z-10 p-0.5 rounded bg-slate-900/70 hover:bg-slate-900 transition-colors"
-                    onClick={e => { e.stopPropagation(); onSelect(shot.filename, !isSelected); }}
+                    onClick={e => { e.stopPropagation(); onSelect(shotIdentity, !isSelected); }}
                     title={isSelected ? '取消选择' : '选择'}
                   >
                     {isSelected
@@ -265,21 +263,22 @@ export default function ScreenshotGrid({
             </thead>
             <tbody>
               {screenshots.map((shot, idx) => {
-                const det = detectionMap.get(shot.filename);
+                const shotIdentity = getScreenshotIdentity(shot);
+                const det = findDetectionForScreenshot(detections, shot);
                 const cat = getCategory(det, confThreshold);
-                const isSelected = selected.has(shot.filename);
-                const imgSrc = shot.dataUrl || shot.publicUrl || det?.publicUrl || det?.imageUrl || '';
+                const isSelected = selected.has(shotIdentity);
+                const imgSrc = shot.dataUrl || shot.publicUrl || det?.annotatedUrl || det?.publicUrl || det?.imageUrl || '';
 
                 return (
                   <tr
-                    key={shot.filename}
+                    key={shotIdentity}
                     className={`border-b border-slate-700/50 transition-colors
                       ${isSelected ? 'bg-cyan-900/20' : idx % 2 === 0 ? 'bg-slate-900/40' : 'bg-slate-800/40'}
                       hover:bg-slate-700/30`}
                   >
                     {/* Checkbox */}
                     <td className="px-2 py-1.5 text-center">
-                      <button onClick={() => onSelect(shot.filename, !isSelected)}>
+                      <button onClick={() => onSelect(shotIdentity, !isSelected)}>
                         {isSelected
                           ? <CheckSquare className="w-4 h-4 text-cyan-400" />
                           : <Square className="w-4 h-4 text-slate-500" />

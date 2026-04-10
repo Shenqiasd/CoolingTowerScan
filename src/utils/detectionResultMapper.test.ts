@@ -9,6 +9,7 @@ const baseShot: CaptureResult = {
   dataUrl: 'data:image/png;base64,abc',
   publicUrl: 'https://example.com/original.png',
   screenshotId: 'shot-1',
+  sessionId: 'session-1',
   row: 0,
   col: 0,
   lng: 121.5,

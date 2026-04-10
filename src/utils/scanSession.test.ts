@@ -9,6 +9,7 @@ const screenshot: CaptureResult = {
   dataUrl: 'data:image/png;base64,abc',
   publicUrl: null,
   screenshotId: 'shot-new',
+  sessionId: 'session-new',
   row: 0,
   col: 0,
   lng: 121.5,
@@ -37,6 +38,7 @@ const staleDetection: ScanDetection = {
 
 test('applyScreenshotsReady clears stale detections from previous runs', () => {
   const prev: ScanSession = {
+    sessionId: 'session-old',
     screenshots: [],
     detections: [staleDetection],
     status: 'complete',
@@ -46,5 +48,6 @@ test('applyScreenshotsReady clears stale detections from previous runs', () => {
 
   assert.deepEqual(next.screenshots, [screenshot]);
   assert.deepEqual(next.detections, []);
+  assert.equal(next.sessionId, 'session-new');
   assert.equal(next.status, 'screenshotting');
 });

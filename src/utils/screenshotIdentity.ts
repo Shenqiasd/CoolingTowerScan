@@ -16,3 +16,12 @@ export function isDetectionForScreenshot(
 ): boolean {
   return getScreenshotIdentity(detection) === getScreenshotIdentity(screenshot);
 }
+
+export function findDetectionForScreenshot(
+  detections: ScanDetection[],
+  screenshot: Pick<CaptureResult, 'filename' | 'screenshotId'>,
+): ScanDetection | undefined {
+  const screenshotIdentity = getScreenshotIdentity(screenshot);
+
+  return detections.find((detection) => getScreenshotIdentity(detection) === screenshotIdentity);
+}

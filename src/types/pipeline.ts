@@ -47,12 +47,14 @@ export interface DetectionFilters {
 }
 
 export interface ScanSession {
+  sessionId: string | null;
   screenshots: CaptureResult[];
   detections: ScanDetection[];
   status: 'idle' | 'screenshotting' | 'detecting' | 'complete';
 }
 
 export const INITIAL_SCAN_SESSION: ScanSession = {
+  sessionId: null,
   screenshots: [],
   detections: [],
   status: 'idle',

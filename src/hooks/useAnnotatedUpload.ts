@@ -7,20 +7,21 @@ import type { ScanDetection } from '../types/pipeline';
 export function useAnnotatedUpload() {
   const uploadAnnotated = useCallback(async (
     detection: ScanDetection,
-    onUpdate: (filename: string, update: Partial<ScanDetection>) => void
+    onUpdate: (detection: ScanDetection, update: Partial<ScanDetection>) => void
   ): Promise<void> => {
     if (!detection.hasCoolingTower || !detection.detections.length) return;
     // Prefer dataUrl (base64, no CORS) over publicUrl for canvas annotation
     const imageUrl = detection.dataUrl || detection.imageUrl || detection.publicUrl;
     if (!imageUrl) return;
 
-    onUpdate(detection.screenshotFilename, { uploadStatus: 'uploading' });
+    onUpdate(detection, { uploadStatus: 'uploading' });
 
     try {
       const blob = await generateAnnotatedImage(imageUrl, detection.detections);
       if (!blob) throw new Error('canvas generation failed');
 
-      const path = `annotated/${detection.screenshotFilename}`;
+      const objectName = detection.screenshotId ?? detection.screenshotFilename;
+      const path = `annotated/${objectName}.png`;
       const { error } = await supabase.storage
         .from(SCREENSHOT_STORAGE_BUCKET)
         .upload(path, blob, { contentType: 'image/png', upsert: true });
@@ -45,16 +46,16 @@ export function useAnnotatedUpload() {
           .eq('id', detection.enterpriseId);
       }
 
-      onUpdate(detection.screenshotFilename, { annotatedUrl, uploadStatus: 'done' });
+      onUpdate(detection, { annotatedUrl, uploadStatus: 'done' });
     } catch (error) {
       console.error('Annotated upload failed:', error);
-      onUpdate(detection.screenshotFilename, { uploadStatus: 'failed' });
+      onUpdate(detection, { uploadStatus: 'failed' });
     }
   }, []);
 
   const uploadAllAnnotated = useCallback(async (
     detections: ScanDetection[],
-    onUpdate: (filename: string, update: Partial<ScanDetection>) => void
+    onUpdate: (detection: ScanDetection, update: Partial<ScanDetection>) => void
   ): Promise<void> => {
     const withTowers = detections.filter(d => d.hasCoolingTower && !d.annotatedUrl);
     for (const d of withTowers) {

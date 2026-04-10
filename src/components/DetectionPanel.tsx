@@ -47,9 +47,10 @@ export default function DetectionPanel({
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
-  const updateDetection = useCallback((filename: string, update: Partial<ScanDetection>) => {
+  const updateDetection = useCallback((target: ScanDetection, update: Partial<ScanDetection>) => {
+    const targetIdentity = getScreenshotIdentity(target);
     onDetectionsUpdate(
-      detections.map(d => d.screenshotFilename === filename ? { ...d, ...update } : d)
+      detections.map((d) => getScreenshotIdentity(d) === targetIdentity ? { ...d, ...update } : d)
     );
   }, [detections, onDetectionsUpdate]);
 
@@ -159,7 +160,7 @@ export default function DetectionPanel({
   // ── handleBatchDetect ─────────────────────────────────────────────────────
 
   const handleBatchDetect = useCallback(async () => {
-    const targets = screenshots.filter(s => selected.has(s.filename));
+    const targets = screenshots.filter((s) => selected.has(getScreenshotIdentity(s)));
     if (targets.length === 0) return;
     setIsDetecting(true);
     shouldStopRef.current = false;
@@ -191,23 +192,23 @@ export default function DetectionPanel({
 
   const handleBatchUpload = useCallback(async () => {
     const targets = detections.filter(
-      d => selected.has(d.screenshotFilename) && d.hasCoolingTower
+      (d) => selected.has(getScreenshotIdentity(d)) && d.hasCoolingTower
     );
     await uploadAllAnnotated(targets, updateDetection);
   }, [detections, selected, uploadAllAnnotated, updateDetection]);
 
   // ── selection handlers ────────────────────────────────────────────────────
 
-  const handleSelect = useCallback((filename: string, checked: boolean) => {
+  const handleSelect = useCallback((identity: string, checked: boolean) => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (checked) next.add(filename); else next.delete(filename);
+      if (checked) next.add(identity); else next.delete(identity);
       return next;
     });
   }, []);
 
-  const handleSelectAll = useCallback((filenames: string[]) => {
-    setSelected(new Set(filenames));
+  const handleSelectAll = useCallback((identities: string[]) => {
+    setSelected(new Set(identities));
   }, []);
 
   const handleClearSelection = useCallback(() => {
@@ -222,8 +223,8 @@ export default function DetectionPanel({
     if (idx >= 0) setReviewIndex(idx);
   }, [detections]);
 
-  const handleReview = useCallback((filename: string, status: 'confirmed' | 'rejected') => {
-    updateDetection(filename, { reviewStatus: status });
+  const handleReview = useCallback((detection: ScanDetection, status: 'confirmed' | 'rejected') => {
+    updateDetection(detection, { reviewStatus: status });
   }, [updateDetection]);
 
   const handleLinkEnterprise = useCallback((detection: ScanDetection) => {
@@ -419,12 +420,12 @@ export default function DetectionPanel({
         onDetect={handleBatchDetect}
         onUpload={handleBatchUpload}
         onDelete={() => {
-          const without = detections.filter(d => !selected.has(d.screenshotFilename));
+          const without = detections.filter((d) => !selected.has(getScreenshotIdentity(d)));
           onDetectionsUpdate(without);
           setSelected(new Set());
         }}
         onLinkEnterprise={() => {
-          const first = detections.find(d => selected.has(d.screenshotFilename) && d.hasCoolingTower);
+          const first = detections.find((d) => selected.has(getScreenshotIdentity(d)) && d.hasCoolingTower);
           if (first) setMatchTarget(first);
         }}
         isDetecting={isDetecting}

@@ -6,6 +6,7 @@ export function applyScreenshotsReady(
 ): ScanSession {
   return {
     ...prev,
+    sessionId: screenshots[0]?.sessionId ?? null,
     screenshots,
     detections: [],
     status: 'screenshotting',

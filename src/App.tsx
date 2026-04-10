@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useCallback, useRef, lazy, Suspense, useEffect } from 'react';
 import { Map, List, Loader2 } from 'lucide-react';
 import MapScreenshot from './components/screenshot';
 import type { ScreenshotResult } from './components/screenshot';
@@ -27,14 +27,45 @@ import { importDetectionCsv } from './utils/detectionImporter';
 import * as XLSX from 'xlsx';
 import { getListSelectionUpdate, type ViewTab } from './utils/listSelection';
 import { applyScreenshotsReady } from './utils/scanSession';
+import {
+  buildRestoredScanSession,
+  type PersistedDetectionRow,
+  type PersistedScreenshotRow,
+} from './utils/scanSessionPersistence';
 
 const MapView = lazy(() => import('./components/MapView'));
 
+const ACTIVE_SCAN_SESSION_KEY = 'active_scan_session_id';
+const ACTIVE_SCAN_STEP_KEY = 'active_scan_step';
+const ACTIVE_SCAN_VIEW_KEY = 'active_scan_view';
+
+function isSidebarView(value: string | null): value is SidebarView {
+  return value === 'dashboard' || value === 'screenshot' || value === 'detection' || value === 'results';
+}
+
+function isPipelineStep(value: string | null): value is PipelineStep {
+  return value === 'screenshot' || value === 'detection' || value === 'results';
+}
+
 function App() {
   // Pipeline state
-  const [activeStep, setActiveStep] = useState<PipelineStep>('results');
+  const [activeStep, setActiveStep] = useState<PipelineStep>(() => {
+    if (typeof window === 'undefined') {
+      return 'results';
+    }
+
+    const stored = localStorage.getItem(ACTIVE_SCAN_STEP_KEY);
+    return isPipelineStep(stored) ? stored : 'results';
+  });
   const [session, setSession] = useState<ScanSession>(INITIAL_SCAN_SESSION);
-  const [activeView, setActiveView] = useState<SidebarView>('dashboard');
+  const [activeView, setActiveView] = useState<SidebarView>(() => {
+    if (typeof window === 'undefined') {
+      return 'dashboard';
+    }
+
+    const stored = localStorage.getItem(ACTIVE_SCAN_VIEW_KEY);
+    return isSidebarView(stored) ? stored : 'dashboard';
+  });
 
   // Data hooks
   const {
@@ -75,6 +106,108 @@ function App() {
     refreshStats();
     refreshMarkers();
   }, [refresh, refreshStats, refreshMarkers]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreScanSession = async () => {
+      const sessionId = localStorage.getItem(ACTIVE_SCAN_SESSION_KEY);
+      if (!sessionId) {
+        return;
+      }
+
+      const { data: sessionRow, error: sessionError } = await supabase
+        .from('scan_sessions')
+        .select('id, mode')
+        .eq('id', sessionId)
+        .maybeSingle();
+      if (sessionError || !sessionRow) {
+        localStorage.removeItem(ACTIVE_SCAN_SESSION_KEY);
+        return;
+      }
+
+      const { data: screenshotRows, error: screenshotError } = await supabase
+        .from('scan_screenshots')
+        .select(`
+          id,
+          session_id,
+          enterprise_id,
+          filename,
+          storage_url,
+          annotated_url,
+          lng,
+          lat,
+          row_idx,
+          col_idx,
+          address_label,
+          has_cooling_tower,
+          tower_count,
+          max_confidence,
+          detection_status,
+          review_status
+        `)
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true });
+      if (screenshotError || !screenshotRows?.length) {
+        localStorage.removeItem(ACTIVE_SCAN_SESSION_KEY);
+        return;
+      }
+
+      const screenshotIds = screenshotRows.map((row) => row.id);
+      let detectionRows: PersistedDetectionRow[] = [];
+      if (screenshotIds.length > 0) {
+        const { data, error } = await supabase
+          .from('detection_results')
+          .select('screenshot_id, confidence, class_name, bbox_x1, bbox_y1, bbox_x2, bbox_y2')
+          .in('screenshot_id', screenshotIds)
+          .order('detection_id', { ascending: true });
+        if (!error && data) {
+          detectionRows = data as PersistedDetectionRow[];
+        }
+      }
+
+      const restored = buildRestoredScanSession({
+        sessionId,
+        mode: sessionRow.mode,
+        screenshots: screenshotRows as PersistedScreenshotRow[],
+        detectionRows,
+      });
+
+      if (cancelled || restored.screenshots.length === 0) {
+        return;
+      }
+
+      setSession(restored);
+
+      const storedView = localStorage.getItem(ACTIVE_SCAN_VIEW_KEY);
+      const storedStep = localStorage.getItem(ACTIVE_SCAN_STEP_KEY);
+      setActiveView(isSidebarView(storedView) ? storedView : 'detection');
+      setActiveStep(isPipelineStep(storedStep) ? storedStep : 'detection');
+    };
+
+    void restoreScanSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (session.sessionId) {
+      localStorage.setItem(ACTIVE_SCAN_SESSION_KEY, session.sessionId);
+      return;
+    }
+
+    localStorage.removeItem(ACTIVE_SCAN_SESSION_KEY);
+  }, [session.sessionId]);
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_SCAN_VIEW_KEY, activeView);
+  }, [activeView]);
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_SCAN_STEP_KEY, activeStep);
+  }, [activeStep]);
 
   const handleSelectFromMap = useCallback(async (id: string) => {
     const { data } = await supabase

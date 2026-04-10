@@ -1,6 +1,7 @@
 import mapboxgl from 'mapbox-gl';
 import { supabase } from '../../lib/supabase';
 import { SCREENSHOT_STORAGE_BUCKET } from '../../utils/storageBuckets';
+import { buildStitchedStoragePath } from '../../utils/storagePath';
 import { buildStitchLayout } from '../../utils/stitchLayout';
 
 export interface CaptureTask {
@@ -13,9 +14,10 @@ export interface CaptureTask {
 
 export interface CaptureResult {
   filename: string;
-  dataUrl: string;
+  dataUrl: string | null;
   publicUrl: string | null;
   screenshotId: string | null;   // scan_screenshots.id after DB insert
+  sessionId: string | null;
   row: number;
   col: number;
   lng: number;
@@ -113,7 +115,7 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
     const filename = `scan_R${task.row}_C${task.col}_Z${zoomLevel}${addrSuffix}.png`;
 
     if (skipUpload) {
-      results.push({ filename, dataUrl, publicUrl: null, screenshotId: null, row: task.row, col: task.col, lng: task.lng, lat: task.lat, source: mode, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
+      results.push({ filename, dataUrl, publicUrl: null, screenshotId: null, sessionId, row: task.row, col: task.col, lng: task.lng, lat: task.lat, source: mode, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
       log(`[${i + 1}/${tasks.length}] 瓦片 R${task.row}C${task.col} 截图完成`, 'info');
       continue;
     }
@@ -142,7 +144,7 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
       screenshotId = ssData?.id ?? null;
     }
 
-    results.push({ filename, dataUrl, publicUrl, screenshotId, row: task.row, col: task.col, lng: task.lng, lat: task.lat, source: mode, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
+    results.push({ filename, dataUrl, publicUrl, screenshotId, sessionId, row: task.row, col: task.col, lng: task.lng, lat: task.lat, source: mode, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
     log(`[${i + 1}/${tasks.length}] ${filename} ${publicUrl ? '✓ 已上传' : '(上传失败)'}`, publicUrl ? 'success' : 'error');
   }
 
@@ -323,12 +325,17 @@ export async function stitchTiles(
   gridRows: number,
   overlapRatio = 0,
 ): Promise<Blob> {
+  const firstTileDataUrl = tiles[0]?.dataUrl;
+  if (!firstTileDataUrl) {
+    throw new Error('missing tile image data');
+  }
+
   // Load first tile to get dimensions
   const firstImg = await new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = reject;
-    img.src = tiles[0].dataUrl;
+    img.src = firstTileDataUrl;
   });
   const tileW = firstImg.naturalWidth;
   const tileH = firstImg.naturalHeight;
@@ -348,6 +355,10 @@ export async function stitchTiles(
 
   await Promise.all(tiles.map(tile =>
     new Promise<void>((resolve, reject) => {
+      if (!tile.dataUrl) {
+        reject(new Error(`missing tile image data for ${tile.row},${tile.col}`));
+        return;
+      }
       const img = new Image();
       img.onload = () => {
         const tileLayout = layout.tiles.find(
@@ -433,7 +444,7 @@ export async function runAddressCapture(opts: {
   // Upload stitched image
   const safeLabel = addressLabel.slice(0, 20).replace(/[/\\?%*:|"<>]/g, '_');
   const filename = `stitched_Z${zoomLevel}_${safeLabel}.png`;
-  const storagePath = `${sessionId ?? 'nosession'}/stitched/${filename}`;
+  const storagePath = buildStitchedStoragePath(sessionId, zoomLevel);
   const { publicUrl, error: uploadError } = await uploadToStorage(stitchedBlob, storagePath);
   if (uploadError) {
     log(`拼合图上传失败: ${uploadError}`, 'error');
@@ -460,7 +471,7 @@ export async function runAddressCapture(opts: {
 
   const dataUrl = URL.createObjectURL(stitchedBlob);
   return {
-    filename, dataUrl, publicUrl, screenshotId,
+    filename, dataUrl, publicUrl, screenshotId, sessionId,
     row: 0, col: 0, lng: centerLng, lat: centerLat,
     source: 'address', addressLabel, enterpriseId,
   };
