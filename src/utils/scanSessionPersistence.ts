@@ -12,6 +12,7 @@ export interface PersistedScreenshotRow {
   row_idx: number | null;
   col_idx: number | null;
   address_label: string | null;
+  resolved_address: string | null;
   has_cooling_tower: boolean | null;
   tower_count: number | null;
   max_confidence: number | null;
@@ -90,6 +91,7 @@ export function buildRestoredScanSession({
     lat: row.lat,
     source: buildScreenshotSource(mode, row),
     addressLabel: row.address_label ?? undefined,
+    resolvedAddress: row.resolved_address ?? undefined,
     enterpriseId: row.enterprise_id,
   }));
 
@@ -107,6 +109,7 @@ export function buildRestoredScanSession({
         lat: row.lat,
         source: buildScreenshotSource(mode, row),
         addressLabel: row.address_label ?? undefined,
+        resolvedAddress: row.resolved_address ?? undefined,
         hasCoolingTower: row.detection_status === 'detected',
         count: row.tower_count ?? rows.length,
         confidence,

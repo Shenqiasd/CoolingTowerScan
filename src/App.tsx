@@ -140,6 +140,7 @@ function App() {
           row_idx,
           col_idx,
           address_label,
+          resolved_address,
           has_cooling_tower,
           tower_count,
           max_confidence,
@@ -380,6 +381,7 @@ function App() {
                 detections={session.detections}
                 onDetectionsUpdate={handleDetectionsUpdate}
                 onStatusChange={handleDetectionStatusChange}
+                onDataImported={handleDataImported}
               />
             )}
 

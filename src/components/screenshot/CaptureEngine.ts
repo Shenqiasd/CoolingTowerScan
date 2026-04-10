@@ -11,6 +11,7 @@ export interface CaptureTask {
   lng: number;
   lat: number;
   addressLabel?: string;
+  resolvedAddress?: string;
 }
 
 export interface CaptureResult {
@@ -25,6 +26,7 @@ export interface CaptureResult {
   lat: number;
   source: 'area' | 'address';
   addressLabel?: string;
+  resolvedAddress?: string;
   enterpriseId?: string | null;
 }
 
@@ -116,7 +118,21 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
     const filename = `scan_R${task.row}_C${task.col}_Z${zoomLevel}${addrSuffix}.png`;
 
     if (skipUpload) {
-      results.push({ filename, dataUrl, publicUrl: null, screenshotId: null, sessionId, row: task.row, col: task.col, lng: task.lng, lat: task.lat, source: mode, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
+      results.push({
+        filename,
+        dataUrl,
+        publicUrl: null,
+        screenshotId: null,
+        sessionId,
+        row: task.row,
+        col: task.col,
+        lng: task.lng,
+        lat: task.lat,
+        source: mode,
+        addressLabel: task.addressLabel,
+        resolvedAddress: task.resolvedAddress,
+        enterpriseId: enterpriseId ?? null,
+      });
       log(`[${i + 1}/${tasks.length}] 瓦片 R${task.row}C${task.col} 截图完成`, 'info');
       continue;
     }
@@ -141,11 +157,26 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
         row_idx: task.row,
         col_idx: task.col,
         address_label: task.addressLabel ?? null,
+        resolved_address: task.resolvedAddress ?? null,
       }).select('id').single();
       screenshotId = ssData?.id ?? null;
     }
 
-    results.push({ filename, dataUrl, publicUrl, screenshotId, sessionId, row: task.row, col: task.col, lng: task.lng, lat: task.lat, source: mode, addressLabel: task.addressLabel, enterpriseId: enterpriseId ?? null });
+    results.push({
+      filename,
+      dataUrl,
+      publicUrl,
+      screenshotId,
+      sessionId,
+      row: task.row,
+      col: task.col,
+      lng: task.lng,
+      lat: task.lat,
+      source: mode,
+      addressLabel: task.addressLabel,
+      resolvedAddress: task.resolvedAddress,
+      enterpriseId: enterpriseId ?? null,
+    });
     log(`[${i + 1}/${tasks.length}] ${filename} ${publicUrl ? '✓ 已上传' : '(上传失败)'}`, publicUrl ? 'success' : 'error');
   }
 
@@ -196,8 +227,9 @@ export function buildAddressTasks(
   centerLat: number,
   radiusMeters: number,
   addressLabel: string,
+  resolvedAddress?: string,
 ): CaptureTask[] {
-  return [{ row: 0, col: 0, lng: centerLng, lat: centerLat, addressLabel }];
+  return [{ row: 0, col: 0, lng: centerLng, lat: centerLat, addressLabel, resolvedAddress }];
 }
 
 /** 估算截图数量（不需要地图实例，用于预览） */
@@ -228,6 +260,7 @@ export function buildAddressGridTasks(
   centerLat: number,
   radiusMeters: number,
   addressLabel: string,
+  resolvedAddress?: string,
   zoom = 18,
   overlapRatio = 0.1,
 ): { tasks: CaptureTask[]; gridCols: number; gridRows: number } {
@@ -259,7 +292,7 @@ export function buildAddressGridTasks(
     for (let col = 0; col < gridCols; col++) {
       const lng = centerLng + (col - halfCols) * stepLng;
       const lat = centerLat - (row - halfRows) * stepLat;
-      tasks.push({ row, col, lng, lat, addressLabel });
+      tasks.push({ row, col, lng, lat, addressLabel, resolvedAddress });
     }
   }
 
@@ -368,6 +401,7 @@ export async function runAddressCapture(opts: {
   centerLat: number;
   radiusMeters: number;
   addressLabel: string;
+  resolvedAddress?: string;
   zoomLevel?: number;
   overlapRatio?: number;
   enterpriseId?: string | null;
@@ -377,14 +411,14 @@ export async function runAddressCapture(opts: {
   shouldStop: () => boolean;
 }): Promise<CaptureResult | null> {
   const {
-    map, centerLng, centerLat, radiusMeters, addressLabel,
+    map, centerLng, centerLat, radiusMeters, addressLabel, resolvedAddress,
     zoomLevel = 18, overlapRatio = 0.1, enterpriseId = null,
     delayMs = 1500, onProgress, onLog, shouldStop,
   } = opts;
   const log = onLog ?? (() => {});
 
   const { tasks, gridCols, gridRows } = buildAddressGridTasks(
-    map, centerLng, centerLat, radiusMeters, addressLabel, zoomLevel, overlapRatio
+    map, centerLng, centerLat, radiusMeters, addressLabel, resolvedAddress, zoomLevel, overlapRatio
   );
 
   log(`开始截图：${gridRows}×${gridCols} = ${tasks.length} 张瓦片，zoom ${zoomLevel}`, 'info');
@@ -435,6 +469,7 @@ export async function runAddressCapture(opts: {
       row_idx: 0,
       col_idx: 0,
       address_label: addressLabel,
+      resolved_address: resolvedAddress ?? null,
     }).select('id').single();
     screenshotId = ssData?.id ?? null;
   }
@@ -443,6 +478,6 @@ export async function runAddressCapture(opts: {
   return {
     filename, dataUrl, publicUrl, screenshotId, sessionId,
     row: 0, col: 0, lng: centerLng, lat: centerLat,
-    source: 'address', addressLabel, enterpriseId,
+    source: 'address', addressLabel, resolvedAddress, enterpriseId,
   };
 }

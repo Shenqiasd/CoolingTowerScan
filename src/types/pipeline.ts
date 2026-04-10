@@ -23,6 +23,7 @@ export interface ScanDetection {
   lat: number;
   source?: 'area' | 'address';  // screenshot origin
   addressLabel?: string;
+  resolvedAddress?: string;
   hasCoolingTower: boolean;
   count: number;
   confidence: number;

@@ -20,6 +20,7 @@ test('buildRestoredScanSession rebuilds screenshots and detections from persiste
         row_idx: 0,
         col_idx: 0,
         address_label: '测试地址',
+        resolved_address: '上海市浦东新区测试路 1 号',
         has_cooling_tower: true,
         tower_count: 2,
         max_confidence: 0.78,
@@ -55,6 +56,7 @@ test('buildRestoredScanSession rebuilds screenshots and detections from persiste
   assert.equal(restored.screenshots[0]?.sessionId, 'session-1');
   assert.equal(restored.screenshots[0]?.dataUrl, null);
   assert.equal(restored.screenshots[0]?.publicUrl, 'https://example.com/source.png');
+  assert.equal(restored.screenshots[0]?.resolvedAddress, '上海市浦东新区测试路 1 号');
 
   assert.equal(restored.detections.length, 1);
   assert.equal(restored.detections[0]?.screenshotId, 'shot-1');
@@ -63,6 +65,7 @@ test('buildRestoredScanSession rebuilds screenshots and detections from persiste
   assert.equal(restored.detections[0]?.confidence, 0.78);
   assert.equal(restored.detections[0]?.annotatedUrl, 'https://example.com/annotated.png');
   assert.equal(restored.detections[0]?.reviewStatus, 'confirmed');
+  assert.equal(restored.detections[0]?.resolvedAddress, '上海市浦东新区测试路 1 号');
   assert.equal(restored.detections[0]?.detections.length, 2);
 });
 
@@ -83,6 +86,7 @@ test('buildRestoredScanSession keeps screenshot-only rows pending until detectio
         row_idx: 0,
         col_idx: 0,
         address_label: null,
+        resolved_address: null,
         has_cooling_tower: false,
         tower_count: 0,
         max_confidence: 0,

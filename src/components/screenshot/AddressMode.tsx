@@ -19,6 +19,7 @@ interface LogEntry {
 
 interface BatchAddress {
   text: string;
+  resolvedAddress?: string;
   status: 'pending' | 'done' | 'error';
   lng?: number;
   lat?: number;
@@ -69,7 +70,7 @@ export default function AddressMode({ token, onComplete }: Props) {
   const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [selectedAddress, setSelectedAddress] = useState<{ name: string; lng: number; lat: number } | null>(null);
+  const [selectedAddress, setSelectedAddress] = useState<{ name: string; address: string; lng: number; lat: number } | null>(null);
   const [batchText, setBatchText] = useState('');
   const [batchAddresses, setBatchAddresses] = useState<BatchAddress[]>([]);
   const [radiusMeters, setRadiusMeters] = useState(500);
@@ -158,7 +159,7 @@ export default function AddressMode({ token, onComplete }: Props) {
 
   const handleSelectResult = useCallback((result: SearchResult) => {
     const [lng, lat] = resolveSearchCoordinates(result);
-    setSelectedAddress({ name: result.name, lng, lat });
+    setSelectedAddress({ name: result.name, address: result.address || result.name, lng, lat });
     setSearchResults([]);
     placeMarker(lng, lat);
     addLog('info', `已选择: ${result.name}`);
@@ -178,7 +179,7 @@ export default function AddressMode({ token, onComplete }: Props) {
           const [lng, lat] = resolveSearchCoordinates(results[0]);
           setBatchAddresses((prev) => {
             const next = [...prev];
-            next[i] = { ...next[i], status: 'done', lng, lat };
+            next[i] = { ...next[i], status: 'done', lng, lat, resolvedAddress: results[0].address || lines[i] };
             return next;
           });
           if (provider === 'osm' && fallbackReason) {
@@ -239,6 +240,7 @@ export default function AddressMode({ token, onComplete }: Props) {
           zoomLevel,
           overlapRatio: overlapPct / 100,
           addressLabel: selectedAddress.name,
+          resolvedAddress: selectedAddress.address,
           enterpriseId: null,
           onProgress: (done, total) => { setProgress(done); setProgressTotal(total); },
           onLog: (msg, type) => addLog(type === 'error' ? 'error' : type === 'success' ? 'info' : 'info', msg),
@@ -269,6 +271,7 @@ export default function AddressMode({ token, onComplete }: Props) {
             zoomLevel,
             overlapRatio: overlapPct / 100,
             addressLabel: addr.text,
+            resolvedAddress: addr.resolvedAddress || addr.text,
             onProgress: (done) => { setProgress(doneCount + done); },
             onLog: (msg, type) => addLog(type === 'error' ? 'error' : 'info', msg),
             shouldStop: () => abortRef.current,

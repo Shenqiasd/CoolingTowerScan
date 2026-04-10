@@ -52,10 +52,11 @@ interface Props {
   detections: ScanDetection[];
   onDetectionsUpdate: (update: SetStateAction<ScanDetection[]>) => void;
   onStatusChange: (status: 'detecting' | 'complete' | 'idle') => void;
+  onDataImported?: () => void;
 }
 
 export default function DetectionPanel({
-  screenshots, detections, onDetectionsUpdate, onStatusChange,
+  screenshots, detections, onDetectionsUpdate, onStatusChange, onDataImported,
 }: Props) {
   const [apiUrl, setApiUrl] = useState(getDetectionApiUrl);
   const [showSettings, setShowSettings] = useState(false);
@@ -120,12 +121,15 @@ export default function DetectionPanel({
   ), []);
 
   const handlePostDetection = useCallback(async (newTowerDets: ScanDetection[]) => {
-    await uploadAllAnnotated(newTowerDets, updateDetection);
+    const result = await uploadAllAnnotated(newTowerDets, updateDetection);
+    if (result.done > 0) {
+      onDataImported?.();
+    }
     const unmatched = newTowerDets.find(
       d => d.source === 'area' && !d.matchedEnterpriseId
     );
     if (unmatched) setMatchTarget(unmatched);
-  }, [uploadAllAnnotated, updateDetection]);
+  }, [uploadAllAnnotated, updateDetection, onDataImported]);
 
   // ── handleDetect ──────────────────────────────────────────────────────────
 
@@ -234,15 +238,22 @@ export default function DetectionPanel({
     if (result.failed > 0) {
       parts.push(`${result.failed} 张失败`);
     }
+    if (result.created > 0) {
+      parts.push(`自动创建企业 ${result.created} 家`);
+    }
     if (blockedSummary) {
       parts.push(blockedSummary);
+    }
+
+    if (result.done > 0) {
+      onDataImported?.();
     }
 
     setUploadNotice({
       tone: result.failed > 0 || blockedSummary ? 'warning' : 'success',
       message: formatUploadNoticeMessage(parts),
     });
-  }, [detections, selected, uploadAllAnnotated, updateDetection]);
+  }, [detections, selected, uploadAllAnnotated, updateDetection, onDataImported]);
 
   // ── selection handlers ────────────────────────────────────────────────────
 
