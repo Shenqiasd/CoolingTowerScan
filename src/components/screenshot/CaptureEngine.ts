@@ -1,5 +1,6 @@
 import mapboxgl from 'mapbox-gl';
 import { supabase } from '../../lib/supabase';
+import { autoZoomForRadius, viewSpanAtZoom } from '../../utils/rasterViewport';
 import { SCREENSHOT_STORAGE_BUCKET } from '../../utils/storageBuckets';
 import { buildStitchedStoragePath } from '../../utils/storagePath';
 import { buildStitchLayout } from '../../utils/stitchLayout';
@@ -152,25 +153,6 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
   return results;
 }
 
-/**
- * 根据 zoom 和画布尺寸计算单张截图覆盖的经纬度跨度（确定性，不依赖地图当前状态）
- * Mapbox 使用 Web Mercator，512px tile，zoom N 下每像素 = 地球周长 / (512 * 2^N)
- */
-export function viewSpanAtZoom(
-  zoom: number,
-  canvasWidth: number,
-  canvasHeight: number,
-  centerLat: number
-): { spanLng: number; spanLat: number } {
-  const earthCircumference = 40075016.686; // meters
-  const metersPerPixel = earthCircumference / (512 * Math.pow(2, zoom));
-  const widthMeters = canvasWidth * metersPerPixel;
-  const heightMeters = canvasHeight * metersPerPixel;
-  const spanLng = widthMeters / (111320 * Math.cos((centerLat * Math.PI) / 180));
-  const spanLat = heightMeters / 111320;
-  return { spanLng, spanLat };
-}
-
 /** 根据区域边界和 zoom 计算地毯式截图任务列表 */
 export function buildAreaTasks(
   map: mapboxgl.Map,
@@ -205,18 +187,6 @@ export function buildAreaTasks(
   }
 
   return tasks;
-}
-
-/** 根据中心点和半径（米）计算单地址截图任务列表（地毯式） */
-/** 根据半径自动计算合适的 zoom，使单张截图能覆盖整个直径范围（含 1.2x 边距） */
-export function autoZoomForRadius(radiusM: number, canvasWidth: number, centerLat: number): number {
-  const earthCircumference = 40075016.686;
-  const targetSpanMeters = radiusM * 2 * 1.2;
-  const zoom = Math.log2(
-    (earthCircumference * Math.cos((centerLat * Math.PI) / 180)) /
-    (targetSpanMeters * (canvasWidth / 512))
-  );
-  return Math.min(Math.floor(zoom), 18);
 }
 
 /** 地址搜索模式：每个地址只生成 1 个任务，zoom 自动适配半径 */

@@ -1,6 +1,7 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { SATELLITE_TILE_SIZE } from '../../utils/rasterViewport';
 
 export interface MapCanvasHandle {
   map: mapboxgl.Map | null;
@@ -49,7 +50,7 @@ const MapCanvas = forwardRef<MapCanvasHandle, Props>(({
           'google-satellite': {
             type: 'raster',
             tiles: ['https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'],
-            tileSize: 256,
+            tileSize: SATELLITE_TILE_SIZE,
           },
         },
         layers: [{ id: 'satellite', type: 'raster', source: 'google-satellite' }],
