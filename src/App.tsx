@@ -26,6 +26,7 @@ import { importCsvFile } from './utils/csvImporter';
 import { importDetectionCsv } from './utils/detectionImporter';
 import * as XLSX from 'xlsx';
 import { getListSelectionUpdate, type ViewTab } from './utils/listSelection';
+import { applyScreenshotsReady } from './utils/scanSession';
 
 const MapView = lazy(() => import('./components/MapView'));
 
@@ -127,7 +128,7 @@ function App() {
   }, [handleDataImported]);
 
   const handleScreenshotsReady = useCallback((screenshots: ScreenshotResult[]) => {
-    setSession((prev) => ({ ...prev, screenshots, status: 'screenshotting' }));
+    setSession((prev) => applyScreenshotsReady(prev, screenshots));
     setActiveStep('detection');
     setActiveView('detection');
   }, []);

@@ -7,6 +7,7 @@ import { useScreenshotFilters, DEFAULT_FILTERS } from '../hooks/useScreenshotFil
 import { useAnnotatedUpload } from '../hooks/useAnnotatedUpload';
 import { useEnterpriseMatch } from '../hooks/useEnterpriseMatch';
 import { buildErrorDetection, buildScanDetection } from '../utils/detectionResultMapper';
+import { getScreenshotIdentity, isDetectionForScreenshot } from '../utils/screenshotIdentity';
 import ScreenshotGrid from './detection/ScreenshotGrid';
 import DetectionFilterBar from './detection/DetectionFilterBar';
 import FloatingActionBar from './detection/FloatingActionBar';
@@ -112,7 +113,7 @@ export default function DetectionPanel({
     for (let i = 0; i < screenshots.length; i++) {
       if (shouldStopRef.current) break;
       const shot = screenshots[i];
-      if (working.some(d => d.screenshotFilename === shot.filename)) continue;
+      if (working.some(d => isDetectionForScreenshot(d, shot))) continue;
       try {
         const det = await runDetection(shot);
         working.push(det);
@@ -140,10 +141,10 @@ export default function DetectionPanel({
   // ── handleRedetect ────────────────────────────────────────────────────────
 
   const handleRedetect = useCallback(async (detection: ScanDetection) => {
-    const shot = screenshots.find(s => s.filename === detection.screenshotFilename);
+    const shot = screenshots.find(s => isDetectionForScreenshot(detection, s));
     if (!shot) return;
     if (shot.screenshotId) await clearDetectionResults(shot.screenshotId);
-    const without = detections.filter(d => d.screenshotFilename !== shot.filename);
+    const without = detections.filter(d => !isDetectionForScreenshot(d, shot));
     onDetectionsUpdate(without);
     try {
       const det = await runDetection(shot);
@@ -167,16 +168,16 @@ export default function DetectionPanel({
     const newTowers: ScanDetection[] = [];
     for (const shot of targets) {
       if (shouldStopRef.current) break;
-      const without = working.filter(d => d.screenshotFilename !== shot.filename);
+      const without = working.filter(d => !isDetectionForScreenshot(d, shot));
       try {
         const det = await runDetection(shot);
-        const idx = working.findIndex(d => d.screenshotFilename === shot.filename);
+        const idx = working.findIndex(d => isDetectionForScreenshot(d, shot));
         if (idx >= 0) working[idx] = det; else working.push(det);
         if (det.hasCoolingTower) newTowers.push(det);
         onDetectionsUpdate([...working]);
       } catch (err) {
         const errDet = makeErrorDet(shot, err);
-        const idx = working.findIndex(d => d.screenshotFilename === shot.filename);
+        const idx = working.findIndex(d => isDetectionForScreenshot(d, shot));
         if (idx >= 0) working[idx] = errDet; else working.push(errDet);
         onDetectionsUpdate([...working]);
       }
@@ -216,7 +217,8 @@ export default function DetectionPanel({
   // ── review handlers ───────────────────────────────────────────────────────
 
   const handleOpenReview = useCallback((detection: ScanDetection) => {
-    const idx = detections.findIndex(d => d.screenshotFilename === detection.screenshotFilename);
+    const detectionKey = getScreenshotIdentity(detection);
+    const idx = detections.findIndex(d => getScreenshotIdentity(d) === detectionKey);
     if (idx >= 0) setReviewIndex(idx);
   }, [detections]);
 
