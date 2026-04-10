@@ -239,6 +239,7 @@ export default function AddressMode({ token, onComplete }: Props) {
           centerLat: selectedAddress.lat,
           radiusMeters,
           zoomLevel,
+          overlapRatio: overlapPct / 100,
           addressLabel: selectedAddress.name,
           enterpriseId: null,
           onProgress: (done, total) => { setProgress(done); setProgressTotal(total); },
@@ -268,6 +269,7 @@ export default function AddressMode({ token, onComplete }: Props) {
             centerLat: addr.lat!,
             radiusMeters,
             zoomLevel,
+            overlapRatio: overlapPct / 100,
             addressLabel: addr.text,
             onProgress: (done) => { setProgress(doneCount + done); },
             onLog: (msg, type) => addLog(type === 'error' ? 'error' : 'info', msg),
@@ -286,7 +288,7 @@ export default function AddressMode({ token, onComplete }: Props) {
     } finally {
       setIsCapturing(false);
     }
-  }, [mode, selectedAddress, batchAddresses, radiusMeters, zoomLevel, addLog, onComplete]);
+  }, [mode, selectedAddress, batchAddresses, radiusMeters, zoomLevel, overlapPct, addLog, onComplete]);
 
   const handleStop = useCallback(() => {
     abortRef.current = true;
