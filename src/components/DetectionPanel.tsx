@@ -6,6 +6,7 @@ import { saveDetectionResult, clearDetectionResults } from '../utils/detectionPe
 import { useScreenshotFilters, DEFAULT_FILTERS } from '../hooks/useScreenshotFilters';
 import { useAnnotatedUpload } from '../hooks/useAnnotatedUpload';
 import { useEnterpriseMatch } from '../hooks/useEnterpriseMatch';
+import { buildAnnotatedUploadPlan } from '../utils/annotatedUploadPlan';
 import { buildErrorDetection, buildScanDetection } from '../utils/detectionResultMapper';
 import { patchDetection } from '../utils/detectionState';
 import { getScreenshotIdentity, isDetectionForScreenshot } from '../utils/screenshotIdentity';
@@ -19,6 +20,31 @@ const CONF_KEY = 'detection_conf_threshold';
 function loadConf(): number {
   const v = parseFloat(localStorage.getItem(CONF_KEY) ?? '');
   return isNaN(v) ? 0.25 : v;
+}
+
+type UploadNoticeTone = 'success' | 'warning' | 'error';
+
+function formatUploadNoticeMessage(parts: string[]): string {
+  return parts.join('，');
+}
+
+function formatBlockedUploadReasons(plan: ReturnType<typeof buildAnnotatedUploadPlan>): string {
+  const parts: string[] = [];
+
+  if (plan.missingImage.length > 0) {
+    parts.push(`${plan.missingImage.length} 张缺少原图`);
+  }
+  if (plan.missingBoxes.length > 0) {
+    parts.push(`${plan.missingBoxes.length} 张缺少检测框`);
+  }
+  if (plan.alreadyUploaded.length > 0) {
+    parts.push(`${plan.alreadyUploaded.length} 张已上传`);
+  }
+  if (plan.noTower.length > 0) {
+    parts.push(`${plan.noTower.length} 张无冷却塔`);
+  }
+
+  return formatUploadNoticeMessage(parts);
 }
 
 interface Props {
@@ -37,10 +63,12 @@ export default function DetectionPanel({
   const [conf, setConf] = useState<number>(loadConf);
   const [isDetecting, setIsDetecting] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState<{ tone: UploadNoticeTone; message: string } | null>(null);
   const shouldStopRef = useRef(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState<DetectionFilters>(DEFAULT_FILTERS);
   const filteredDetections = useScreenshotFilters(detections, filters);
+  const selectedUploadPlan = buildAnnotatedUploadPlan(detections, selected);
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [matchTarget, setMatchTarget] = useState<ScanDetection | null>(null);
   const { uploadAllAnnotated } = useAnnotatedUpload();
@@ -189,10 +217,31 @@ export default function DetectionPanel({
   // ── handleBatchUpload ─────────────────────────────────────────────────────
 
   const handleBatchUpload = useCallback(async () => {
-    const targets = detections.filter(
-      (d) => selected.has(getScreenshotIdentity(d)) && d.hasCoolingTower
-    );
-    await uploadAllAnnotated(targets, updateDetection);
+    const plan = buildAnnotatedUploadPlan(detections, selected);
+    const blockedSummary = formatBlockedUploadReasons(plan);
+
+    if (plan.ready.length === 0) {
+      const message = blockedSummary
+        ? `无法上传：${blockedSummary}`
+        : '无法上传：所选截图没有可上传的冷却塔标注图';
+      setUploadNotice({ tone: 'error', message });
+      return;
+    }
+
+    const result = await uploadAllAnnotated(plan.ready, updateDetection);
+    const parts = [`已上传 ${result.done} 张`];
+
+    if (result.failed > 0) {
+      parts.push(`${result.failed} 张失败`);
+    }
+    if (blockedSummary) {
+      parts.push(blockedSummary);
+    }
+
+    setUploadNotice({
+      tone: result.failed > 0 || blockedSummary ? 'warning' : 'success',
+      message: formatUploadNoticeMessage(parts),
+    });
   }, [detections, selected, uploadAllAnnotated, updateDetection]);
 
   // ── selection handlers ────────────────────────────────────────────────────
@@ -341,6 +390,26 @@ export default function DetectionPanel({
         </div>
       )}
 
+      {uploadNotice && (
+        <div
+          className={`flex-shrink-0 flex items-center justify-between gap-3 px-4 py-2.5 border-b text-sm ${
+            uploadNotice.tone === 'success'
+              ? 'bg-gradient-to-r from-cyan-700/50 to-cyan-600/30 border-cyan-500/30 text-cyan-50'
+              : uploadNotice.tone === 'warning'
+                ? 'bg-gradient-to-r from-amber-700/50 to-amber-600/30 border-amber-500/30 text-amber-50'
+                : 'bg-gradient-to-r from-red-700/50 to-red-600/30 border-red-500/30 text-red-50'
+          }`}
+        >
+          <span>{uploadNotice.message}</span>
+          <button
+            onClick={() => setUploadNotice(null)}
+            className="transition-colors hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Settings panel */}
       {showSettings && (
         <div className="flex-shrink-0 px-4 py-3 bg-slate-800/80 border-b border-slate-700 space-y-3">
@@ -427,6 +496,7 @@ export default function DetectionPanel({
           if (first) setMatchTarget(first);
         }}
         isDetecting={isDetecting}
+        uploadTitle={selectedUploadPlan.ready.length === 0 ? '所选截图没有可上传的标注图' : undefined}
       />
 
       {/* Review modal */}

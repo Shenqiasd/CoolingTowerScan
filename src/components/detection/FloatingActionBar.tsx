@@ -7,9 +7,18 @@ interface Props {
   onDelete: () => void;
   onLinkEnterprise: () => void;
   isDetecting: boolean;
+  uploadTitle?: string;
 }
 
-export default function FloatingActionBar({ selectedCount, onDetect, onUpload, onDelete, onLinkEnterprise, isDetecting }: Props) {
+export default function FloatingActionBar({
+  selectedCount,
+  onDetect,
+  onUpload,
+  onDelete,
+  onLinkEnterprise,
+  isDetecting,
+  uploadTitle,
+}: Props) {
   if (selectedCount === 0) return null;
 
   return (
@@ -25,6 +34,7 @@ export default function FloatingActionBar({ selectedCount, onDetect, onUpload, o
       </button>
       <button
         onClick={onUpload}
+        title={uploadTitle}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium transition-colors"
       >
         <Upload className="w-3.5 h-3.5" />

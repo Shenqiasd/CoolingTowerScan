@@ -4,15 +4,32 @@ import { generateAnnotatedImage } from '../utils/annotatedImageGenerator';
 import { SCREENSHOT_STORAGE_BUCKET } from '../utils/storageBuckets';
 import type { ScanDetection } from '../types/pipeline';
 
+export interface AnnotatedUploadResult {
+  done: number;
+  failed: number;
+  skipped: number;
+}
+
 export function useAnnotatedUpload() {
   const uploadAnnotated = useCallback(async (
     detection: ScanDetection,
     onUpdate: (detection: ScanDetection, update: Partial<ScanDetection>) => void
-  ): Promise<void> => {
-    if (!detection.hasCoolingTower || !detection.detections.length) return;
+  ): Promise<'done' | 'failed' | 'skipped'> => {
+    if (!detection.hasCoolingTower) {
+      return 'skipped';
+    }
+
+    if (!detection.detections.length) {
+      onUpdate(detection, { uploadStatus: 'failed' });
+      return 'failed';
+    }
+
     // Prefer dataUrl (base64, no CORS) over publicUrl for canvas annotation
     const imageUrl = detection.dataUrl || detection.imageUrl || detection.publicUrl;
-    if (!imageUrl) return;
+    if (!imageUrl) {
+      onUpdate(detection, { uploadStatus: 'failed' });
+      return 'failed';
+    }
 
     onUpdate(detection, { uploadStatus: 'uploading' });
 
@@ -47,20 +64,27 @@ export function useAnnotatedUpload() {
       }
 
       onUpdate(detection, { annotatedUrl, uploadStatus: 'done' });
+      return 'done';
     } catch (error) {
       console.error('Annotated upload failed:', error);
       onUpdate(detection, { uploadStatus: 'failed' });
+      return 'failed';
     }
   }, []);
 
   const uploadAllAnnotated = useCallback(async (
     detections: ScanDetection[],
     onUpdate: (detection: ScanDetection, update: Partial<ScanDetection>) => void
-  ): Promise<void> => {
+  ): Promise<AnnotatedUploadResult> => {
     const withTowers = detections.filter(d => d.hasCoolingTower && !d.annotatedUrl);
+    const result: AnnotatedUploadResult = { done: 0, failed: 0, skipped: 0 };
+
     for (const d of withTowers) {
-      await uploadAnnotated(d, onUpdate);
+      const outcome = await uploadAnnotated(d, onUpdate);
+      result[outcome] += 1;
     }
+
+    return result;
   }, [uploadAnnotated]);
 
   return { uploadAnnotated, uploadAllAnnotated };
