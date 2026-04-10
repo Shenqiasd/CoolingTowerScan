@@ -4,6 +4,7 @@ import gcoord from 'gcoord';
 import { Search, Play, StopCircle, Plus, Trash2, MapPin } from 'lucide-react';
 import MapCanvas, { type MapCanvasHandle } from './MapCanvas';
 import { runAddressCapture, estimateAddressGridCount, type CaptureResult } from './CaptureEngine';
+import { searchLocations, type SearchResult } from '../../utils/locationSearch';
 
 interface Props {
   token: string;
@@ -16,12 +17,6 @@ interface LogEntry {
   msg: string;
 }
 
-interface SearchResult {
-  name: string;
-  address: string;
-  location: string;
-}
-
 interface BatchAddress {
   text: string;
   status: 'pending' | 'done' | 'error';
@@ -29,25 +24,20 @@ interface BatchAddress {
   lat?: number;
 }
 
-const AMAP_KEY = 'a7330f3c7b474880113a2f76cd02d9b4';
 const CIRCLE_SOURCE = 'radius-circle';
-
-async function amapGeocode(keyword: string): Promise<SearchResult[]> {
-  const url = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(keyword)}&key=${AMAP_KEY}&output=json&offset=20&page=1&extensions=base`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (data.status !== '1' || !data.pois?.length) return [];
-  return data.pois.map((p: any) => ({
-    name: p.name,
-    address: p.address || `${p.pname}${p.cityname}${p.adname}`,
-    location: p.location,
-  }));
-}
 
 function gcj02ToWgs84(location: string): [number, number] {
   const [lng, lat] = location.split(',').map(Number);
   const [wLng, wLat] = gcoord.transform([lng, lat], gcoord.GCJ02, gcoord.WGS84);
   return [wLng, wLat];
+}
+
+function resolveSearchCoordinates(result: SearchResult): [number, number] {
+  if (result.coordinateSystem === 'gcj02') {
+    return gcj02ToWgs84(result.location);
+  }
+
+  return result.location.split(',').map(Number) as [number, number];
 }
 
 function makeCircleGeoJSON(lng: number, lat: number, radiusM: number): GeoJSON.FeatureCollection {
@@ -151,9 +141,14 @@ export default function AddressMode({ token, onComplete }: Props) {
     setIsSearching(true);
     setSearchResults([]);
     try {
-      const results = await amapGeocode(searchQuery.trim());
+      const { results, provider, error, fallbackReason } = await searchLocations(searchQuery.trim());
       setSearchResults(results);
-      if (!results.length) addLog('warn', `未找到地址: ${searchQuery}`);
+      if (provider === 'osm' && fallbackReason) {
+        addLog('warn', `高德搜索不可用，已切换备用搜索: ${fallbackReason}`);
+      }
+      if (!results.length) {
+        addLog(error ? 'error' : 'warn', error ? `搜索失败: ${error}` : `未找到地址: ${searchQuery}`);
+      }
     } catch (e) {
       addLog('error', `搜索失败: ${String(e)}`);
     } finally {
@@ -162,7 +157,7 @@ export default function AddressMode({ token, onComplete }: Props) {
   }, [searchQuery, addLog]);
 
   const handleSelectResult = useCallback((result: SearchResult) => {
-    const [lng, lat] = gcj02ToWgs84(result.location);
+    const [lng, lat] = resolveSearchCoordinates(result);
     setSelectedAddress({ name: result.name, lng, lat });
     setSearchResults([]);
     placeMarker(lng, lat);
@@ -178,14 +173,17 @@ export default function AddressMode({ token, onComplete }: Props) {
 
     for (let i = 0; i < lines.length; i++) {
       try {
-        const results = await amapGeocode(lines[i]);
+        const { results, provider, error, fallbackReason } = await searchLocations(lines[i]);
         if (results.length) {
-          const [lng, lat] = gcj02ToWgs84(results[0].location);
+          const [lng, lat] = resolveSearchCoordinates(results[0]);
           setBatchAddresses((prev) => {
             const next = [...prev];
             next[i] = { ...next[i], status: 'done', lng, lat };
             return next;
           });
+          if (provider === 'osm' && fallbackReason) {
+            addLog('warn', `高德搜索不可用，${lines[i]} 已切换备用搜索: ${fallbackReason}`);
+          }
           addLog('info', `解析成功: ${lines[i]}`);
         } else {
           setBatchAddresses((prev) => {
@@ -193,7 +191,7 @@ export default function AddressMode({ token, onComplete }: Props) {
             next[i] = { ...next[i], status: 'error' };
             return next;
           });
-          addLog('warn', `解析失败: ${lines[i]}`);
+          addLog(error ? 'error' : 'warn', error ? `解析失败: ${lines[i]} (${error})` : `解析失败: ${lines[i]}`);
         }
       } catch {
         setBatchAddresses((prev) => {
