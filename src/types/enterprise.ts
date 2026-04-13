@@ -1,3 +1,41 @@
+export type HvacEstimateMethod = 'none' | 'count-only' | 'count-and-size' | 'manual-count';
+
+export interface HvacEstimateScenario {
+  estimated_building_area: number;
+  unit_cooling_load: number;
+  peak_cooling_load: number;
+  total_cooling_capacity_rt: number;
+  estimated_heat_rejection_kw: number;
+  chiller_count: number;
+  single_unit_capacity_rt: number;
+  single_unit_rated_power_kw: number;
+  cooling_station_rated_power_kw: number;
+  cooling_station_rated_power_mw: number;
+}
+
+export interface HvacEstimateDetails {
+  method: HvacEstimateMethod;
+  tower_count: number;
+  detected_tower_total_area_m2: number;
+  detected_tower_avg_area_m2: number;
+  detected_tower_max_area_m2: number;
+  assumptions: {
+    heat_rejection_factor: number;
+    count_based_rt_per_tower: Record<'conservative' | 'typical' | 'aggressive', number>;
+    tower_rt_per_m2: Record<'conservative' | 'typical' | 'aggressive', number>;
+  };
+  industry_load_profile: {
+    min: number;
+    max: number;
+    typical: number;
+  };
+  scenarios: {
+    conservative: HvacEstimateScenario;
+    typical: HvacEstimateScenario;
+    aggressive: HvacEstimateScenario;
+  };
+}
+
 export interface Enterprise {
   id: string;
   account_number: string;
@@ -16,6 +54,9 @@ export interface Enterprise {
   cooling_tower_count: number;
   detection_confidence: number;
   detection_status: string;
+  detected_tower_total_area_m2: number;
+  detected_tower_avg_area_m2: number;
+  detected_tower_max_area_m2: number;
   estimated_building_area: number;
   unit_cooling_load: number;
   peak_cooling_load: number;
@@ -25,6 +66,7 @@ export interface Enterprise {
   single_unit_rated_power_kw: number;
   cooling_station_rated_power_kw: number;
   cooling_station_rated_power_mw: number;
+  hvac_estimate_details: HvacEstimateDetails | null;
   original_image_url: string | null;
   annotated_image_url: string | null;
   image_uploaded_at: string | null;

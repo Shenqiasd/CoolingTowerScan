@@ -1,5 +1,6 @@
 import gcoord from 'gcoord';
 import { supabase } from '../lib/supabase';
+import { createEnterpriseHvacRepo, recomputeEnterpriseHvac } from './enterpriseHvac.ts';
 
 const AMAP_KEY = 'a7330f3c7b474880113a2f76cd02d9b4';
 
@@ -72,16 +73,17 @@ export async function confirmEnterpriseMatch(
     .update({ enterprise_id: enterpriseId })
     .eq('id', screenshotId);
 
-  if (detectionData.hasCoolingTower) {
-    const update: Record<string, unknown> = {
-      has_cooling_tower: true,
-      cooling_tower_count: detectionData.count,
-      detection_confidence: detectionData.confidence,
-      detection_status: 'detected',
-    };
-    if (detectionData.annotatedUrl) {
-      update.annotated_image_url = detectionData.annotatedUrl;
-    }
-    await supabase.from('enterprises').update(update).eq('id', enterpriseId);
+  await supabase
+    .from('detection_results')
+    .update({ enterprise_id: enterpriseId })
+    .eq('screenshot_id', screenshotId);
+
+  if (detectionData.annotatedUrl) {
+    await supabase
+      .from('enterprises')
+      .update({ annotated_image_url: detectionData.annotatedUrl })
+      .eq('id', enterpriseId);
   }
+
+  await recomputeEnterpriseHvac(createEnterpriseHvacRepo(supabase), enterpriseId);
 }

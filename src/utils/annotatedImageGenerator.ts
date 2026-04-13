@@ -1,5 +1,24 @@
 import type { BboxDetection } from '../types/pipeline';
 
+async function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number,
+): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), type, quality);
+  });
+}
+
+export async function exportAnnotatedCanvas(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  const webp = await canvasToBlob(canvas, 'image/webp', 0.82);
+  if (webp?.type === 'image/webp') {
+    return webp;
+  }
+
+  return canvasToBlob(canvas, 'image/png');
+}
+
 /**
  * Draw bounding boxes on an image and return the result as a Blob.
  * Extracted from DetectionImageModal in DetectionPanel.tsx.
@@ -45,7 +64,7 @@ export async function generateAnnotatedImage(
         ctx.fillText(label, x + pad, y - pad);
       }
 
-      canvas.toBlob((blob) => resolve(blob), 'image/png');
+      void exportAnnotatedCanvas(canvas).then(resolve);
     };
     img.onerror = () => resolve(null);
     img.src = imageUrl;

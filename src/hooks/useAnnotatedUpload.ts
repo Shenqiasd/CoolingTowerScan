@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { generateAnnotatedImage } from '../utils/annotatedImageGenerator';
 import { createAddressUploadEnterpriseRepo, ensureEnterpriseForAddressUpload } from '../utils/addressUploadEnterprise';
+import { getAnnotatedUploadTarget } from '../utils/enterpriseImage';
 import { SCREENSHOT_STORAGE_BUCKET } from '../utils/storageBuckets';
 import type { ScanDetection } from '../types/pipeline';
 
@@ -39,14 +40,17 @@ export function useAnnotatedUpload() {
       const blob = await generateAnnotatedImage(imageUrl, detection.detections);
       if (!blob) throw new Error('canvas generation failed');
 
-      const objectName = detection.screenshotId ?? detection.screenshotFilename;
-      const path = `annotated/${objectName}.png`;
+      const target = getAnnotatedUploadTarget(
+        detection.screenshotId,
+        detection.screenshotFilename,
+        blob.type,
+      );
       const { error } = await supabase.storage
         .from(SCREENSHOT_STORAGE_BUCKET)
-        .upload(path, blob, { contentType: 'image/png', upsert: true });
+        .upload(target.path, blob, { contentType: target.contentType, upsert: true });
       if (error) throw error;
 
-      const { data } = supabase.storage.from(SCREENSHOT_STORAGE_BUCKET).getPublicUrl(path);
+      const { data } = supabase.storage.from(SCREENSHOT_STORAGE_BUCKET).getPublicUrl(target.path);
       const annotatedUrl = data.publicUrl;
       let nextEnterpriseId = detection.enterpriseId ?? null;
       let created = false;

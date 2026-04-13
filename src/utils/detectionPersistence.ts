@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { DetectionApiResult } from './detectionApi';
+import { createEnterpriseHvacRepo, recomputeEnterpriseHvac } from './enterpriseHvac.ts';
 
 /**
  * 识别完成后写库：
@@ -46,18 +47,19 @@ export async function saveDetectionResult(
   }
 
   // 3. Update enterprise if linked
-  if (enterpriseId && result.has_cooling_tower) {
-    await supabase.from('enterprises').update({
-      has_cooling_tower: true,
-      cooling_tower_count: result.count,
-      detection_confidence: result.confidence,
-      detection_status: 'detected',
-    }).eq('id', enterpriseId);
+  if (enterpriseId) {
+    await recomputeEnterpriseHvac(createEnterpriseHvacRepo(supabase), enterpriseId);
   }
 }
 
 /** 重跑前清理旧识别结果 */
 export async function clearDetectionResults(screenshotId: string): Promise<void> {
+  const { data: screenshot } = await supabase
+    .from('scan_screenshots')
+    .select('enterprise_id')
+    .eq('id', screenshotId)
+    .maybeSingle();
+
   await supabase.from('detection_results').delete().eq('screenshot_id', screenshotId);
   await supabase.from('scan_screenshots').update({
     has_cooling_tower: false,
@@ -65,4 +67,8 @@ export async function clearDetectionResults(screenshotId: string): Promise<void>
     max_confidence: 0,
     detection_status: 'pending',
   }).eq('id', screenshotId);
+
+  if (screenshot?.enterprise_id) {
+    await recomputeEnterpriseHvac(createEnterpriseHvacRepo(supabase), screenshot.enterprise_id);
+  }
 }

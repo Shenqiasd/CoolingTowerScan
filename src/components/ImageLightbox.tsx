@@ -5,6 +5,7 @@ import { warmImageSource } from '../utils/reviewImage';
 interface LightboxImage {
   url: string;
   label: string;
+  previewUrl?: string;
 }
 
 interface ImageLightboxProps {
@@ -63,10 +64,11 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
   }, [onClose, prev, next, resetTransform, images.length]);
 
   useEffect(() => {
+    warmImageSource(current?.url);
     if (images.length <= 1) return;
     warmImageSource(images[(index + 1) % images.length]?.url);
     warmImageSource(images[(index - 1 + images.length) % images.length]?.url);
-  }, [images, index]);
+  }, [current?.url, images, index]);
 
   function onWheel(e: React.WheelEvent) {
     e.preventDefault();
@@ -210,7 +212,7 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
                 ${i === index ? 'border-cyan-400 opacity-100' : 'border-white/10 opacity-50 hover:opacity-75'}`}
             >
               <img
-                src={img.url}
+                src={img.previewUrl || img.url}
                 alt={img.label}
                 className="w-full h-full object-cover"
                 loading="lazy"

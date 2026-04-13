@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { X, Upload, Loader2, Image as ImageIcon, ThermometerSun, Building2, Gauge, Cpu, PlugZap, Save, Radar, Target, Maximize2, MapPin, Tag, Star, BarChart3 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { calculateHVAC } from '../utils/hvacCalculator';
+import { buildEnterpriseImageAsset } from '../utils/enterpriseImage';
+import { warmImageSource } from '../utils/reviewImage';
 import type { Enterprise, DetectionResult } from '../types/enterprise';
 import ImageLightbox from './ImageLightbox';
 
@@ -42,10 +44,19 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  const lightboxImages = [
-    enterprise.original_image_url ? { url: enterprise.original_image_url, label: '原始卫星图' } : null,
-    enterprise.annotated_image_url ? { url: enterprise.annotated_image_url, label: '识别标注图' } : null,
-  ].filter(Boolean) as { url: string; label: string }[];
+  const satelliteImages = [
+    enterprise.original_image_url
+      ? { ...buildEnterpriseImageAsset(enterprise.original_image_url), url: enterprise.original_image_url, label: '原始卫星图' }
+      : null,
+    enterprise.annotated_image_url
+      ? { ...buildEnterpriseImageAsset(enterprise.annotated_image_url), url: enterprise.annotated_image_url, label: '识别标注图' }
+      : null,
+  ].filter(Boolean) as { fullUrl: string; url: string; label: string; previewUrl: string }[];
+
+  const openLightbox = (index: number) => {
+    warmImageSource(satelliteImages[index]?.url);
+    setLightboxIndex(index);
+  };
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>, type: 'original' | 'annotated') {
     const file = e.target.files?.[0];
@@ -80,11 +91,16 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
 
   async function handleSaveDetection() {
     setSaving(true);
-    const hvac = calculateHVAC(towerCount, enterprise.industry_category);
+    const hvac = calculateHVAC(towerCount, enterprise.industry_category, {
+      detectedTowerTotalAreaM2: enterprise.detected_tower_total_area_m2,
+      detectedTowerAvgAreaM2: enterprise.detected_tower_avg_area_m2,
+      detectedTowerMaxAreaM2: enterprise.detected_tower_max_area_m2,
+      method: 'manual-count',
+    });
     await onUpdate(enterprise.id, {
       cooling_tower_count: towerCount,
       has_cooling_tower: towerCount > 0,
-      detection_status: 'detected',
+      detection_status: towerCount > 0 ? 'detected' : 'no_result',
       detection_confidence: 1,
       ...hvac,
     });
@@ -192,12 +208,17 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                       <div
                         className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
                           border border-slate-700/40 hover:border-cyan-500/50 transition-all"
-                        onClick={() => setLightboxIndex(0)}
+                        onMouseEnter={() => warmImageSource(enterprise.original_image_url)}
+                        onFocus={() => warmImageSource(enterprise.original_image_url)}
+                        onPointerDown={() => warmImageSource(enterprise.original_image_url)}
+                        onClick={() => openLightbox(0)}
                       >
                         <img
-                          src={enterprise.original_image_url}
+                          src={satelliteImages.find((image) => image.fullUrl === enterprise.original_image_url)?.previewUrl || enterprise.original_image_url}
                           alt="原始图"
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          loading="lazy"
+                          decoding="async"
                         />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
                           flex items-center justify-center">
@@ -233,14 +254,19 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                         className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
                           border border-slate-700/40 hover:border-emerald-500/50 transition-all"
                         onClick={() => {
-                          const idx = enterprise.original_image_url ? 1 : 0;
-                          setLightboxIndex(idx);
+                          const idx = satelliteImages.findIndex((image) => image.fullUrl === enterprise.annotated_image_url);
+                          openLightbox(Math.max(0, idx));
                         }}
+                        onMouseEnter={() => warmImageSource(enterprise.annotated_image_url)}
+                        onFocus={() => warmImageSource(enterprise.annotated_image_url)}
+                        onPointerDown={() => warmImageSource(enterprise.annotated_image_url)}
                       >
                         <img
-                          src={enterprise.annotated_image_url}
+                          src={satelliteImages.find((image) => image.fullUrl === enterprise.annotated_image_url)?.previewUrl || enterprise.annotated_image_url}
                           alt="标注图"
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          loading="lazy"
+                          decoding="async"
                         />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
                           flex items-center justify-center">
@@ -329,6 +355,14 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                       }`}>
                         {(enterprise.detection_confidence * 100).toFixed(0)}%
                       </span>
+                    </div>
+                  )}
+
+                  {enterprise.detected_tower_total_area_m2 > 0 && (
+                    <div className="flex items-center gap-4 text-xs text-slate-400 bg-slate-900/30 border border-slate-700/30 rounded-lg px-3 py-2">
+                      <span>总塔面积: {enterprise.detected_tower_total_area_m2.toFixed(1)} m²</span>
+                      <span>平均塔面积: {enterprise.detected_tower_avg_area_m2.toFixed(1)} m²</span>
+                      <span>最大塔面积: {enterprise.detected_tower_max_area_m2.toFixed(1)} m²</span>
                     </div>
                   )}
 
@@ -421,9 +455,9 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
         </div>
       </div>
 
-      {lightboxIndex !== null && lightboxImages.length > 0 && (
+      {lightboxIndex !== null && satelliteImages.length > 0 && (
         <ImageLightbox
-          images={lightboxImages}
+          images={satelliteImages}
           initialIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
         />

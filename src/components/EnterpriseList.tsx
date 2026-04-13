@@ -35,6 +35,8 @@ const COLUMNS: ColumnDef[] = [
   { key: 'probability_level', label: '概率', width: 'w-[52px]', sortable: true },
   { key: 'detection_confidence', label: '置信度', width: 'w-[64px]', sortable: true },
   { key: 'cooling_tower_count', label: '冷却塔', width: 'w-[60px]', unit: '台', sortable: true },
+  { key: 'detected_tower_avg_area_m2', label: '平均塔面积', width: 'w-[90px]', unit: 'm\u00B2', sortable: true },
+  { key: 'detected_tower_max_area_m2', label: '最大塔面积', width: 'w-[90px]', unit: 'm\u00B2', sortable: true },
   { key: 'estimated_building_area', label: '建筑面积', width: 'w-[90px]', unit: 'm\u00B2', sortable: true },
   { key: 'unit_cooling_load', label: '单位冷负荷', width: 'w-[90px]', unit: 'W/m\u00B2', sortable: true },
   { key: 'peak_cooling_load', label: '峰值冷负荷', width: 'w-[90px]', unit: 'kW', sortable: true },
@@ -76,6 +78,11 @@ function getCellColor(key: string, value: unknown): string {
   if (key === 'cooling_station_rated_power_kw') {
     if (value > 300) return 'text-rose-400';
     if (value >= 150) return 'text-amber-400';
+    return 'text-slate-300';
+  }
+  if ((key === 'detected_tower_avg_area_m2' || key === 'detected_tower_max_area_m2') && value > 0) {
+    if (value >= 30) return 'text-cyan-400';
+    if (value >= 15) return 'text-emerald-400';
     return 'text-slate-300';
   }
   if (key === 'detection_confidence') {

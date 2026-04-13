@@ -1,4 +1,6 @@
 import type { ScanDetection } from '../types/pipeline.ts';
+import { createEnterpriseHvacRepo, recomputeEnterpriseHvac } from './enterpriseHvac.ts';
+import { calculateHVAC } from './hvacCalculator.ts';
 
 export interface EnterpriseLookupResult {
   id: string;
@@ -21,6 +23,19 @@ export interface EnterpriseDraft {
   cooling_tower_count: number;
   detection_confidence: number;
   detection_status: string;
+  detected_tower_total_area_m2: number;
+  detected_tower_avg_area_m2: number;
+  detected_tower_max_area_m2: number;
+  estimated_building_area: number;
+  unit_cooling_load: number;
+  peak_cooling_load: number;
+  total_cooling_capacity_rt: number;
+  chiller_count: number;
+  single_unit_capacity_rt: number;
+  single_unit_rated_power_kw: number;
+  cooling_station_rated_power_kw: number;
+  cooling_station_rated_power_mw: number;
+  hvac_estimate_details: unknown;
   original_image_url: string | null;
   annotated_image_url: string;
   image_uploaded_at: string;
@@ -31,7 +46,9 @@ export interface AddressUploadEnterpriseRepo {
   findByName(name: string): Promise<EnterpriseLookupResult | null>;
   createEnterprise(input: EnterpriseDraft): Promise<EnterpriseLookupResult>;
   linkScreenshotToEnterprise(screenshotId: string, enterpriseId: string): Promise<void>;
+  linkDetectionsToEnterprise?(screenshotId: string, enterpriseId: string): Promise<void>;
   updateEnterpriseAnnotatedImage(enterpriseId: string, update: Partial<EnterpriseDraft>): Promise<void>;
+  recomputeEnterpriseMetrics?(enterpriseId: string): Promise<void>;
 }
 
 export interface EnsureEnterpriseForAddressUploadOptions {
@@ -68,6 +85,7 @@ export function buildEnterpriseDraftFromDetection(
   annotatedUrl: string,
   uploadedAt: string,
 ): EnterpriseDraft {
+  const hvac = calculateHVAC(detection.count, '');
   return {
     account_number: '',
     enterprise_name: resolveEnterpriseName(detection),
@@ -86,6 +104,19 @@ export function buildEnterpriseDraftFromDetection(
     cooling_tower_count: detection.count,
     detection_confidence: detection.confidence,
     detection_status: 'detected',
+    detected_tower_total_area_m2: hvac.detected_tower_total_area_m2,
+    detected_tower_avg_area_m2: hvac.detected_tower_avg_area_m2,
+    detected_tower_max_area_m2: hvac.detected_tower_max_area_m2,
+    estimated_building_area: hvac.estimated_building_area,
+    unit_cooling_load: hvac.unit_cooling_load,
+    peak_cooling_load: hvac.peak_cooling_load,
+    total_cooling_capacity_rt: hvac.total_cooling_capacity_rt,
+    chiller_count: hvac.chiller_count,
+    single_unit_capacity_rt: hvac.single_unit_capacity_rt,
+    single_unit_rated_power_kw: hvac.single_unit_rated_power_kw,
+    cooling_station_rated_power_kw: hvac.cooling_station_rated_power_kw,
+    cooling_station_rated_power_mw: hvac.cooling_station_rated_power_mw,
+    hvac_estimate_details: hvac.hvac_estimate_details,
     original_image_url: detection.publicUrl || detection.imageUrl || null,
     annotated_image_url: annotatedUrl,
     image_uploaded_at: uploadedAt,
@@ -130,12 +161,22 @@ export function createAddressUploadEnterpriseRepo(client: any): AddressUploadEnt
         .eq('id', screenshotId);
       if (error) throw error;
     },
+    async linkDetectionsToEnterprise(screenshotId, enterpriseId) {
+      const { error } = await client
+        .from('detection_results')
+        .update({ enterprise_id: enterpriseId })
+        .eq('screenshot_id', screenshotId);
+      if (error) throw error;
+    },
     async updateEnterpriseAnnotatedImage(enterpriseId, update) {
       const { error } = await client
         .from('enterprises')
         .update(update)
         .eq('id', enterpriseId);
       if (error) throw error;
+    },
+    async recomputeEnterpriseMetrics(enterpriseId) {
+      await recomputeEnterpriseHvac(createEnterpriseHvacRepo(client), enterpriseId);
     },
   };
 }
@@ -165,6 +206,7 @@ export async function ensureEnterpriseForAddressUpload({
   }
 
   await repo.linkScreenshotToEnterprise(detection.screenshotId, enterprise.id);
+  await repo.linkDetectionsToEnterprise?.(detection.screenshotId, enterprise.id);
   await repo.updateEnterpriseAnnotatedImage(enterprise.id, {
     original_image_url: detection.publicUrl || detection.imageUrl || null,
     annotated_image_url: annotatedUrl,
@@ -177,6 +219,7 @@ export async function ensureEnterpriseForAddressUpload({
     latitude: detection.lat,
     geocoding_status: 'success',
   });
+  await repo.recomputeEnterpriseMetrics?.(enterprise.id);
 
   return {
     enterpriseId: enterprise.id,
