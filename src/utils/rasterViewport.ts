@@ -1,6 +1,19 @@
 export const SATELLITE_SOURCE_TILE_SIZE = 256;
 export const MAPBOX_VIEWPORT_TILE_SIZE = 512;
 
+export interface ViewportPixelSource {
+  width: number;
+  height: number;
+  clientWidth?: number;
+  clientHeight?: number;
+}
+
+export function getViewportPixelSize(source: ViewportPixelSource): { width: number; height: number } {
+  const width = source.clientWidth && source.clientWidth > 0 ? source.clientWidth : source.width;
+  const height = source.clientHeight && source.clientHeight > 0 ? source.clientHeight : source.height;
+  return { width, height };
+}
+
 export function viewSpanAtZoom(
   zoom: number,
   canvasWidth: number,

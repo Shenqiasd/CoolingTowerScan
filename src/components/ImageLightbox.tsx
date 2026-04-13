@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { warmImageSource } from '../utils/reviewImage';
 
 interface LightboxImage {
   url: string;
@@ -60,6 +61,12 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, prev, next, resetTransform, images.length]);
+
+  useEffect(() => {
+    if (images.length <= 1) return;
+    warmImageSource(images[(index + 1) % images.length]?.url);
+    warmImageSource(images[(index - 1 + images.length) % images.length]?.url);
+  }, [images, index]);
 
   function onWheel(e: React.WheelEvent) {
     e.preventDefault();
@@ -164,6 +171,8 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
           alt={current.label}
           draggable={false}
           className="max-w-full max-h-full object-contain transition-transform duration-100"
+          decoding="async"
+          loading="eager"
           style={{
             transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)`,
           }}
@@ -204,6 +213,8 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
                 src={img.url}
                 alt={img.label}
                 className="w-full h-full object-cover"
+                loading="lazy"
+                decoding="async"
               />
             </button>
           ))}

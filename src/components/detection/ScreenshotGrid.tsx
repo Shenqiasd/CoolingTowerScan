@@ -5,6 +5,11 @@ import {
 } from 'lucide-react';
 import type { ScanDetection, CaptureResult } from '../../types/pipeline';
 import { findDetectionForScreenshot, getScreenshotIdentity } from '../../utils/screenshotIdentity';
+import {
+  getDetectionReviewImageSrc,
+  getScreenshotPreviewImageSrc,
+  warmImageSource,
+} from '../../utils/reviewImage';
 import UploadStatusBadge from './UploadStatusBadge';
 
 interface Props {
@@ -82,6 +87,9 @@ export default function ScreenshotGrid({
   confThreshold,
 }: Props) {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const warmReviewImage = useCallback((detection?: ScanDetection) => {
+    warmImageSource(getDetectionReviewImageSrc(detection));
+  }, []);
 
   const allScreenshotIdentities = screenshots.map((s) => getScreenshotIdentity(s));
   const allSelected = allScreenshotIdentities.length > 0 && allScreenshotIdentities.every((id) => selected.has(id));
@@ -165,7 +173,7 @@ export default function ScreenshotGrid({
             const det = findDetectionForScreenshot(detections, shot);
             const cat = getCategory(det, confThreshold);
             const isSelected = selected.has(shotIdentity);
-            const imgSrc = shot.dataUrl || shot.publicUrl || det?.annotatedUrl || det?.publicUrl || det?.imageUrl || '';
+            const imgSrc = getScreenshotPreviewImageSrc(shot, det);
             const shortName = shot.filename.length > 20
               ? shot.filename.slice(0, 9) + '…' + shot.filename.slice(-8)
               : shot.filename;
@@ -181,6 +189,9 @@ export default function ScreenshotGrid({
                 {/* Thumbnail */}
                 <div
                   className={`relative aspect-video bg-slate-900 overflow-hidden ${det ? 'cursor-pointer' : ''}`}
+                  onMouseEnter={() => warmReviewImage(det)}
+                  onFocus={() => warmReviewImage(det)}
+                  onPointerDown={() => warmReviewImage(det)}
                   onClick={() => det && onReview(det)}
                 >
                   {imgSrc ? (
@@ -188,6 +199,8 @@ export default function ScreenshotGrid({
                       src={imgSrc}
                       alt={shot.filename}
                       className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs">
@@ -267,7 +280,7 @@ export default function ScreenshotGrid({
                 const det = findDetectionForScreenshot(detections, shot);
                 const cat = getCategory(det, confThreshold);
                 const isSelected = selected.has(shotIdentity);
-                const imgSrc = shot.dataUrl || shot.publicUrl || det?.annotatedUrl || det?.publicUrl || det?.imageUrl || '';
+                const imgSrc = getScreenshotPreviewImageSrc(shot, det);
 
                 return (
                   <tr
@@ -290,7 +303,13 @@ export default function ScreenshotGrid({
                     <td className="px-2 py-1.5">
                       <div className="w-14 h-9 bg-slate-900 rounded overflow-hidden">
                         {imgSrc ? (
-                          <img src={imgSrc} alt="" className="w-full h-full object-cover" />
+                          <img
+                            src={imgSrc}
+                            alt=""
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                            decoding="async"
+                          />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-slate-600">—</div>
                         )}
@@ -342,6 +361,9 @@ export default function ScreenshotGrid({
                       {det ? (
                         <button
                           onClick={() => onReview(det)}
+                          onMouseEnter={() => warmReviewImage(det)}
+                          onFocus={() => warmReviewImage(det)}
+                          onPointerDown={() => warmReviewImage(det)}
                           className="px-2 py-0.5 rounded text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
                         >
                           查看

@@ -1,9 +1,9 @@
 import mapboxgl from 'mapbox-gl';
-import { supabase } from '../../lib/supabase';
-import { autoZoomForRadius, viewSpanAtZoom } from '../../utils/rasterViewport';
-import { SCREENSHOT_STORAGE_BUCKET } from '../../utils/storageBuckets';
-import { buildStitchedStoragePath } from '../../utils/storagePath';
-import { buildStitchLayout } from '../../utils/stitchLayout';
+import { supabase } from '../../lib/supabase.ts';
+import { autoZoomForRadius, getViewportPixelSize, viewSpanAtZoom } from '../../utils/rasterViewport.ts';
+import { SCREENSHOT_STORAGE_BUCKET } from '../../utils/storageBuckets.ts';
+import { buildStitchedStoragePath } from '../../utils/storagePath.ts';
+import { buildStitchLayout } from '../../utils/stitchLayout.ts';
 
 export interface CaptureTask {
   row: number;
@@ -196,8 +196,9 @@ export function buildAreaTasks(
 ): CaptureTask[] {
   const centerLat = (topLeftLat + bottomRightLat) / 2;
   const canvas = map.getCanvas();
+  const viewport = getViewportPixelSize(canvas);
   const z = zoom ?? map.getZoom();
-  const { spanLng, spanLat } = viewSpanAtZoom(z, canvas.width, canvas.height, centerLat);
+  const { spanLng, spanLat } = viewSpanAtZoom(z, viewport.width, viewport.height, centerLat);
   const stepLng = spanLng * (1 - overlapRatio);
   const stepLat = spanLat * (1 - overlapRatio);
 
@@ -265,7 +266,8 @@ export function buildAddressGridTasks(
   overlapRatio = 0.1,
 ): { tasks: CaptureTask[]; gridCols: number; gridRows: number } {
   const canvas = map.getCanvas();
-  const { spanLng, spanLat } = viewSpanAtZoom(zoom, canvas.width, canvas.height, centerLat);
+  const viewport = getViewportPixelSize(canvas);
+  const { spanLng, spanLat } = viewSpanAtZoom(zoom, viewport.width, viewport.height, centerLat);
 
   // meters per tile (approximate, using center lat)
   const metersPerDegreeLng = 111320 * Math.cos((centerLat * Math.PI) / 180);

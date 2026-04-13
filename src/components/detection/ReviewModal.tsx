@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { ScanDetection } from '../../types/pipeline';
 import { supabase } from '../../lib/supabase';
+import { getDetectionReviewImageSrc, warmImageSource } from '../../utils/reviewImage';
 
 interface Props {
   detections: ScanDetection[];
@@ -26,18 +27,14 @@ export default function ReviewModal({
   const [index, setIndex] = useState(initialIndex);
   const [showBbox, setShowBbox] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [loadedImageSrc, setLoadedImageSrc] = useState('');
 
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const detection = detections[index];
 
-  const imageSrc =
-    detection?.annotatedUrl ||
-    detection?.publicUrl ||
-    detection?.dataUrl ||
-    detection?.imageUrl ||
-    '';
+  const imageSrc = getDetectionReviewImageSrc(detection);
 
   // ── bbox drawing ─────────────────────────────────────────────────────────────
 
@@ -45,6 +42,7 @@ export default function ReviewModal({
     const img = imgRef.current;
     const canvas = canvasRef.current;
     if (!img || !canvas || !detection) return;
+    if (img.naturalWidth === 0 || img.naturalHeight === 0) return;
 
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
@@ -80,15 +78,34 @@ export default function ReviewModal({
   }, [detection, showBbox]);
 
   useEffect(() => {
+    setLoadedImageSrc('');
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }, [imageSrc]);
+
+  useEffect(() => {
     const img = imgRef.current;
-    if (!img) return;
+    if (!img || !imageSrc) return;
     if (img.complete && img.naturalWidth > 0) {
-      drawBoxes();
-    } else {
-      img.addEventListener('load', drawBoxes);
-      return () => img.removeEventListener('load', drawBoxes);
+      setLoadedImageSrc(imageSrc);
     }
-  }, [drawBoxes, imageSrc]);
+  }, [imageSrc]);
+
+  useEffect(() => {
+    if (!imageSrc || loadedImageSrc !== imageSrc) return;
+    const frame = window.requestAnimationFrame(drawBoxes);
+    return () => window.cancelAnimationFrame(frame);
+  }, [drawBoxes, imageSrc, loadedImageSrc]);
+
+  useEffect(() => {
+    warmImageSource(getDetectionReviewImageSrc(detections[index - 1]));
+    warmImageSource(getDetectionReviewImageSrc(detections[index + 1]));
+  }, [detections, index]);
+
+  const handleImageLoad = useCallback(() => {
+    setLoadedImageSrc(imageSrc);
+  }, [imageSrc]);
 
   // ── keyboard navigation ───────────────────────────────────────────────────────
 
@@ -170,11 +187,14 @@ export default function ReviewModal({
             {imageSrc ? (
               <>
                 <img
+                  key={imageSrc}
                   ref={imgRef}
                   src={imageSrc}
                   alt={detection.screenshotFilename}
                   className="max-w-full max-h-full object-contain"
-                  onLoad={drawBoxes}
+                  decoding="async"
+                  loading="eager"
+                  onLoad={handleImageLoad}
                 />
                 <canvas
                   ref={canvasRef}
