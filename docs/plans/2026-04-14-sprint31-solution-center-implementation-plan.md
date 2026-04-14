@@ -54,7 +54,7 @@ git commit -m "feat: add solution savings calculator baseline"
 - Modify: `api/src/modules/projects/project.service.ts`
 - Modify: `api/src/routes/projects.ts`
 - Modify: `api/test/projects.test.ts`
-- Create: `supabase/migrations/20260414_sprint31_solution_center.sql`
+- Create: `supabase/migrations/20260414030000_sprint31_solution_center.sql`
 
 **Step 1: Write the failing test**
 
@@ -95,7 +95,7 @@ Expected: PASS
 **Step 6: Commit**
 
 ```bash
-git add api/src/modules/projects/project.schemas.ts api/src/modules/projects/project.repo.ts api/src/modules/projects/project.service.ts api/src/routes/projects.ts api/test/projects.test.ts supabase/migrations/20260414_sprint31_solution_center.sql
+git add api/src/modules/projects/project.schemas.ts api/src/modules/projects/project.repo.ts api/src/modules/projects/project.service.ts api/src/routes/projects.ts api/test/projects.test.ts supabase/migrations/20260414030000_sprint31_solution_center.sql
 git commit -m "feat: add project solution workspace and snapshots"
 ```
 

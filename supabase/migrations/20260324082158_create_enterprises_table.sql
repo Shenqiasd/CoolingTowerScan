@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS enterprises (
 
   longitude double precision,
   latitude double precision,
-  geom extensions.geometry(Point, 4326),
+  geom public.geometry(Point, 4326),
   geocoding_status text NOT NULL DEFAULT 'pending',
 
   has_cooling_tower boolean DEFAULT false,

@@ -854,7 +854,7 @@ Rationale:
 
 **Files:**
 
-- Create: `supabase/migrations/20260414_wave0_foundation_backbone.sql`
+- Create: `supabase/migrations/20260414010000_wave0_foundation_backbone.sql`
 - Create: `supabase/migrations/20260414_wave0_rls_hardening.sql`
 
 **Steps:**
