@@ -20,7 +20,6 @@ const DEFAULT_PREVIEW_OPTIONS = {
   height: 480,
   quality: 60,
   resize: 'cover' as const,
-  format: 'webp' as const,
 };
 
 export function getSupabaseObjectPathFromPublicUrl(url: string, bucket: string): string | null {
@@ -60,13 +59,15 @@ export function buildEnterpriseImagePreviewUrl(
   try {
     const parsed = new URL(url);
     parsed.pathname = `/storage/v1/render/image/public/${bucket}/${objectPath}`;
-    parsed.search = new URLSearchParams({
+    const search = new URLSearchParams({
       width: String(width),
       height: String(height),
       quality: String(quality),
       resize,
-      format: options.format ?? DEFAULT_PREVIEW_OPTIONS.format,
-    }).toString();
+    });
+    // Supabase image render on this project rejects the previous `format=webp`
+    // query param with HTTP 400, so keep transforms to width/height/quality only.
+    parsed.search = search.toString();
     return parsed.toString();
   } catch {
     return url;

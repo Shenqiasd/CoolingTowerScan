@@ -13,7 +13,7 @@ test('buildEnterpriseImageAsset derives a lightweight preview for Supabase publi
   assert.ok(asset?.previewUrl.includes('width=480'));
   assert.ok(asset?.previewUrl.includes('height=480'));
   assert.ok(asset?.previewUrl.includes('resize=cover'));
-  assert.ok(asset?.previewUrl.includes('format=webp'));
+  assert.ok(!asset?.previewUrl.includes('format='));
 });
 
 test('buildEnterpriseImageAsset keeps non-Supabase URLs unchanged', () => {
