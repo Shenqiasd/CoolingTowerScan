@@ -51,10 +51,10 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
     enterprise.annotated_image_url
       ? { ...buildEnterpriseImageAsset(enterprise.annotated_image_url), url: enterprise.annotated_image_url, label: '识别标注图' }
       : null,
-  ].filter(Boolean) as { fullUrl: string; url: string; label: string; previewUrl: string }[];
+  ].filter(Boolean) as { fullUrl: string; url: string; label: string; previewUrl: string; lightboxUrl: string }[];
 
   const openLightbox = (index: number) => {
-    warmImageSource(satelliteImages[index]?.url);
+    warmImageSource(satelliteImages[index]?.lightboxUrl);
     setLightboxIndex(index);
   };
 
@@ -208,9 +208,9 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                       <div
                         className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
                           border border-slate-700/40 hover:border-cyan-500/50 transition-all"
-                        onMouseEnter={() => warmImageSource(enterprise.original_image_url)}
-                        onFocus={() => warmImageSource(enterprise.original_image_url)}
-                        onPointerDown={() => warmImageSource(enterprise.original_image_url)}
+                        onMouseEnter={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.original_image_url)?.previewUrl)}
+                        onFocus={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.original_image_url)?.previewUrl)}
+                        onPointerDown={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.original_image_url)?.lightboxUrl)}
                         onClick={() => openLightbox(0)}
                       >
                         <img
@@ -257,9 +257,9 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                           const idx = satelliteImages.findIndex((image) => image.fullUrl === enterprise.annotated_image_url);
                           openLightbox(Math.max(0, idx));
                         }}
-                        onMouseEnter={() => warmImageSource(enterprise.annotated_image_url)}
-                        onFocus={() => warmImageSource(enterprise.annotated_image_url)}
-                        onPointerDown={() => warmImageSource(enterprise.annotated_image_url)}
+                        onMouseEnter={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.annotated_image_url)?.previewUrl)}
+                        onFocus={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.annotated_image_url)?.previewUrl)}
+                        onPointerDown={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.annotated_image_url)?.lightboxUrl)}
                       >
                         <img
                           src={satelliteImages.find((image) => image.fullUrl === enterprise.annotated_image_url)?.previewUrl || enterprise.annotated_image_url}

@@ -3,6 +3,7 @@ import { SCREENSHOT_STORAGE_BUCKET } from './storageBuckets.ts';
 export interface EnterpriseImageAsset {
   fullUrl: string;
   previewUrl: string;
+  lightboxUrl: string;
 }
 
 export interface EnterpriseImagePreviewOptions {
@@ -16,10 +17,18 @@ export interface EnterpriseImagePreviewOptions {
 
 const DEFAULT_PREVIEW_OPTIONS = {
   bucket: SCREENSHOT_STORAGE_BUCKET,
-  width: 480,
-  height: 480,
-  quality: 60,
+  width: 320,
+  height: 320,
+  quality: 45,
   resize: 'cover' as const,
+};
+
+const DEFAULT_LIGHTBOX_OPTIONS = {
+  bucket: SCREENSHOT_STORAGE_BUCKET,
+  width: 1600,
+  height: 1600,
+  quality: 75,
+  resize: 'contain' as const,
 };
 
 export function getSupabaseObjectPathFromPublicUrl(url: string, bucket: string): string | null {
@@ -81,6 +90,7 @@ export function buildEnterpriseImageAsset(
   return {
     fullUrl: url,
     previewUrl: buildEnterpriseImagePreviewUrl(url, { bucket }),
+    lightboxUrl: buildEnterpriseImagePreviewUrl(url, { ...DEFAULT_LIGHTBOX_OPTIONS, bucket }),
   };
 }
 

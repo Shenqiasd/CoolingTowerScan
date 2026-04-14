@@ -6,6 +6,7 @@ interface LightboxImage {
   url: string;
   label: string;
   previewUrl?: string;
+  lightboxUrl?: string;
 }
 
 interface ImageLightboxProps {
@@ -64,10 +65,10 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
   }, [onClose, prev, next, resetTransform, images.length]);
 
   useEffect(() => {
-    warmImageSource(current?.url);
+    warmImageSource(current?.lightboxUrl || current?.url);
     if (images.length <= 1) return;
-    warmImageSource(images[(index + 1) % images.length]?.url);
-    warmImageSource(images[(index - 1 + images.length) % images.length]?.url);
+    warmImageSource(images[(index + 1) % images.length]?.lightboxUrl || images[(index + 1) % images.length]?.url);
+    warmImageSource(images[(index - 1 + images.length) % images.length]?.lightboxUrl || images[(index - 1 + images.length) % images.length]?.url);
   }, [current?.url, images, index]);
 
   function onWheel(e: React.WheelEvent) {
@@ -169,7 +170,7 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
         style={{ cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'default' }}
       >
         <img
-          src={current.url}
+          src={current.lightboxUrl || current.url}
           alt={current.label}
           draggable={false}
           className="max-w-full max-h-full object-contain transition-transform duration-100"
