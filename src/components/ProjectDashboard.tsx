@@ -1,10 +1,20 @@
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
-  Search, Plus, ChevronRight, Building2, Thermometer,
-  TrendingUp, Clock, Filter,
+  AlertTriangle,
+  ChevronRight,
+  Clock3,
+  FolderKanban,
+  Handshake,
+  ListChecks,
+  Plus,
+  Search,
+  ShieldAlert,
+  UserSquare2,
 } from 'lucide-react';
+
 import type { Project, SopPhase } from '../types/project';
 import { SOP_PHASES, SOP_PHASE_LABELS } from '../types/project';
+import { buildProjectWorkbenchSummary } from '../utils/projectWorkbench';
 
 interface Props {
   projects: Project[];
@@ -16,21 +26,58 @@ interface Props {
 }
 
 const PHASE_BADGE_COLORS: Record<SopPhase, string> = {
-  prospecting:   'bg-indigo-500/20 text-indigo-300',
+  prospecting: 'bg-indigo-500/20 text-indigo-300',
   qualification: 'bg-cyan-500/20 text-cyan-300',
-  survey:        'bg-emerald-500/20 text-emerald-300',
-  proposal:      'bg-amber-500/20 text-amber-300',
-  bidding:       'bg-orange-500/20 text-orange-300',
-  execution:     'bg-rose-500/20 text-rose-300',
+  survey: 'bg-emerald-500/20 text-emerald-300',
+  proposal: 'bg-amber-500/20 text-amber-300',
+  bidding: 'bg-orange-500/20 text-orange-300',
+  execution: 'bg-rose-500/20 text-rose-300',
   commissioning: 'bg-purple-500/20 text-purple-300',
-  operations:    'bg-teal-500/20 text-teal-300',
+  operations: 'bg-teal-500/20 text-teal-300',
 };
 
 const PRIORITY_COLORS = {
   high: 'bg-red-500/20 text-red-300',
   medium: 'bg-yellow-500/20 text-yellow-300',
   low: 'bg-slate-500/20 text-slate-400',
-};
+} as const;
+
+const STAGE_STATUS_LABELS = {
+  not_started: '未开始',
+  in_progress: '进行中',
+  blocked: '阻塞',
+  pending_approval: '待审批',
+  completed: '已完成',
+  waived: '已豁免',
+} as const;
+
+function getPhaseSnapshot(project: Project) {
+  const value = project.phase_data[project.current_phase];
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function getText(value: unknown) {
+  return typeof value === 'string' ? value : '';
+}
+
+function getCount(value: unknown[]) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function formatDueAt(value: unknown) {
+  if (typeof value !== 'string' || !value) {
+    return '未设置';
+  }
+
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return value;
+  }
+
+  return new Date(timestamp).toLocaleString('zh-CN');
+}
 
 export default function ProjectDashboard({
   projects,
@@ -42,66 +89,55 @@ export default function ProjectDashboard({
 }: Props) {
   const [search, setSearch] = useState('');
 
-  const filtered = projects.filter((p) =>
-    !search || p.name.toLowerCase().includes(search.toLowerCase())
-  );
-
-  // Phase summary counts
-  const phaseCounts = SOP_PHASES.reduce((acc, phase) => {
-    acc[phase] = projects.filter((p) => p.current_phase === phase).length;
+  const workbench = useMemo(() => buildProjectWorkbenchSummary(projects), [projects]);
+  const phaseCounts = useMemo(() => SOP_PHASES.reduce((acc, phase) => {
+    acc[phase] = projects.filter((project) => project.current_phase === phase).length;
     return acc;
-  }, {} as Record<SopPhase, number>);
+  }, {} as Record<SopPhase, number>), [projects]);
 
-  const totalActive = projects.filter((p) => p.status === 'active').length;
-  const totalCompleted = projects.filter((p) => p.status === 'completed').length;
-  const avgScore = projects.length > 0
-    ? (projects.reduce((s, p) => s + p.opportunity_score, 0) / projects.length).toFixed(1)
-    : '0';
+  const filtered = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) {
+      return projects;
+    }
+
+    return projects.filter((project) => (
+      project.name.toLowerCase().includes(keyword)
+      || (project.project_code ?? '').toLowerCase().includes(keyword)
+    ));
+  }, [projects, search]);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-950">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-slate-800">
-        <div className="flex items-center justify-between mb-4">
+    <div className="flex h-full flex-1 flex-col overflow-hidden bg-slate-950">
+      <div className="border-b border-slate-800 px-6 py-4">
+        <div className="mb-4 flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-white">项目看板</h2>
-            <p className="text-xs text-slate-500 mt-0.5">空调交付全流程项目管理</p>
+            <h2 className="text-lg font-semibold text-white">项目中心</h2>
+            <p className="mt-0.5 text-xs text-slate-500">看项目节奏、待审批、阻塞和待交接项。</p>
           </div>
           <button
             onClick={onCreateFromEnterprise}
-            className="flex items-center gap-2 px-3 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-500"
           >
-            <Plus className="w-3.5 h-3.5" />
-            从企业创建项目
+            <Plus className="h-3.5 w-3.5" />
+            前往项目转化入口
           </button>
         </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-slate-900/60 rounded-lg px-4 py-3 border border-slate-800">
-            <p className="text-[10px] text-slate-500 uppercase">进行中</p>
-            <p className="text-xl font-bold text-white mt-1">{totalActive}</p>
-          </div>
-          <div className="bg-slate-900/60 rounded-lg px-4 py-3 border border-slate-800">
-            <p className="text-[10px] text-slate-500 uppercase">已完成</p>
-            <p className="text-xl font-bold text-emerald-400 mt-1">{totalCompleted}</p>
-          </div>
-          <div className="bg-slate-900/60 rounded-lg px-4 py-3 border border-slate-800">
-            <p className="text-[10px] text-slate-500 uppercase">平均评分</p>
-            <p className="text-xl font-bold text-amber-400 mt-1">{avgScore}</p>
-          </div>
-          <div className="bg-slate-900/60 rounded-lg px-4 py-3 border border-slate-800">
-            <p className="text-[10px] text-slate-500 uppercase">总项目</p>
-            <p className="text-xl font-bold text-white mt-1">{projects.length}</p>
-          </div>
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <MetricCard label="项目总数" value={String(projects.length)} accent="text-white" icon={<FolderKanban className="h-4 w-4" />} />
+          <MetricCard label="待审批" value={String(workbench.waitingApproval)} accent="text-cyan-300" icon={<ShieldAlert className="h-4 w-4" />} />
+          <MetricCard label="阻塞项" value={String(workbench.blocked)} accent="text-amber-300" icon={<AlertTriangle className="h-4 w-4" />} />
+          <MetricCard label="已逾期" value={String(workbench.overdue)} accent="text-rose-300" icon={<Clock3 className="h-4 w-4" />} />
+          <MetricCard label="待交接" value={String(workbench.pendingHandoffs)} accent="text-emerald-300" icon={<Handshake className="h-4 w-4" />} />
+          <MetricCard label="进行中" value={String(projects.filter((project) => project.status === 'active').length)} accent="text-white" icon={<ListChecks className="h-4 w-4" />} />
         </div>
       </div>
 
-      {/* Phase Pipeline Bar */}
-      <div className="px-6 py-3 border-b border-slate-800 flex gap-1.5 overflow-x-auto">
+      <div className="flex gap-1.5 overflow-x-auto border-b border-slate-800 px-6 py-3">
         <button
           onClick={() => onPhaseFilter('')}
-          className={`px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors ${
+          className={`rounded-full px-3 py-1.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
             !phaseFilter ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-300'
           }`}
         >
@@ -111,10 +147,8 @@ export default function ProjectDashboard({
           <button
             key={phase}
             onClick={() => onPhaseFilter(phase)}
-            className={`px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors ${
-              phaseFilter === phase
-                ? PHASE_BADGE_COLORS[phase]
-                : 'text-slate-500 hover:text-slate-300'
+            className={`rounded-full px-3 py-1.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
+              phaseFilter === phase ? PHASE_BADGE_COLORS[phase] : 'text-slate-500 hover:text-slate-300'
             }`}
           >
             {SOP_PHASE_LABELS[phase]} ({phaseCounts[phase]})
@@ -122,87 +156,109 @@ export default function ProjectDashboard({
         ))}
       </div>
 
-      {/* Search */}
       <div className="px-6 py-3">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
           <input
             type="text"
-            placeholder="搜索项目名称..."
+            placeholder="搜索项目名称或项目编号..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+            onChange={(event) => setSearch(event.target.value)}
+            className="w-full rounded-lg border border-slate-800 bg-slate-900/60 py-2 pl-9 pr-4 text-xs text-white placeholder-slate-500 focus:border-cyan-500/50 focus:outline-none"
           />
         </div>
       </div>
 
-      {/* Project List */}
-      <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-2">
+      <div className="flex-1 space-y-2 overflow-y-auto px-6 pb-6">
         {loading ? (
-          <div className="flex items-center justify-center py-12 text-slate-500 text-sm">
-            加载中...
-          </div>
+          <div className="py-12 text-center text-sm text-slate-500">项目加载中...</div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-slate-500">
-            <Building2 className="w-8 h-8 mb-2 opacity-40" />
-            <p className="text-sm">暂无项目</p>
-            <p className="text-xs mt-1">从企业列表中选择企业创建项目</p>
+          <div className="rounded-2xl border border-dashed border-slate-800 px-6 py-12 text-center">
+            <p className="text-sm text-slate-300">暂无项目</p>
+            <p className="mt-1 text-xs text-slate-500">从已双确认 Lead 创建项目后会出现在这里。</p>
           </div>
         ) : (
-          filtered.map((project) => (
-            <button
-              key={project.id}
-              onClick={() => onSelectProject(project)}
-              className="w-full text-left bg-slate-900/40 hover:bg-slate-900/70 border border-slate-800 hover:border-slate-700 rounded-lg px-4 py-3 transition-all group"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-white truncate">
-                      {project.name}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                      PHASE_BADGE_COLORS[project.current_phase]
-                    }`}>
-                      {SOP_PHASE_LABELS[project.current_phase]}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                      PRIORITY_COLORS[project.priority]
-                    }`}>
-                      {project.priority === 'high' ? '高' : project.priority === 'medium' ? '中' : '低'}
-                    </span>
+          filtered.map((project) => {
+            const snapshot = getPhaseSnapshot(project);
+            const blockersCount = getCount(snapshot.blockers as unknown[]);
+            const handoffsCount = getCount(snapshot.pendingHandoffs as unknown[]);
+
+            return (
+              <button
+                key={project.id}
+                onClick={() => onSelectProject(project)}
+                className="group w-full rounded-2xl border border-slate-800 bg-slate-900/40 px-4 py-4 text-left transition-all hover:border-slate-700 hover:bg-slate-900/70"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-medium text-white">{project.name}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${PHASE_BADGE_COLORS[project.current_phase]}`}>
+                        {SOP_PHASE_LABELS[project.current_phase]}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${PRIORITY_COLORS[project.priority]}`}>
+                        {project.priority === 'high' ? '高' : project.priority === 'medium' ? '中' : '低'}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap gap-4 text-[11px] text-slate-500">
+                      <span className="flex items-center gap-1">
+                        <FolderKanban className="h-3 w-3" />
+                        {project.project_code || project.id}
+                      </span>
+                      <span>状态 {STAGE_STATUS_LABELS[project.current_stage_status ?? 'not_started']}</span>
+                      <span>到期 {formatDueAt(snapshot.dueAt)}</span>
+                      <span className="flex items-center gap-1">
+                        <UserSquare2 className="h-3 w-3" />
+                        {project.assigned_to || '未分配负责人'}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <DetailChip label="下一 Gate" value={getText(snapshot.nextGateLabel) || '待定义'} />
+                      <DetailChip label="风险摘要" value={getText(snapshot.riskSummary) || '暂无风险摘要'} />
+                      <DetailChip label="操作提醒" value={`阻塞 ${blockersCount} · 交接 ${handoffsCount}`} />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-4 mt-1.5 text-[11px] text-slate-500">
-                    {project.enterprise && (
-                      <>
-                        <span className="flex items-center gap-1">
-                          <Building2 className="w-3 h-3" />
-                          {project.enterprise.industry_category}
-                        </span>
-                        {project.enterprise.has_cooling_tower && (
-                          <span className="flex items-center gap-1">
-                            <Thermometer className="w-3 h-3" />
-                            {project.enterprise.cooling_tower_count} 冷却塔
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1">
-                          <TrendingUp className="w-3 h-3" />
-                          评分 {project.opportunity_score}
-                        </span>
-                      </>
-                    )}
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {new Date(project.updated_at).toLocaleDateString('zh-CN')}
-                    </span>
-                  </div>
+
+                  <ChevronRight className="mt-2 h-4 w-4 flex-shrink-0 text-slate-600 transition-colors group-hover:text-slate-300" />
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-400 transition-colors" />
-              </div>
-            </button>
-          ))
+              </button>
+            );
+          })
         )}
       </div>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  accent,
+  icon,
+}: {
+  label: string;
+  value: string;
+  accent: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+      <div className="flex items-center justify-between text-slate-500">
+        <p className="text-[10px] uppercase tracking-[0.14em]">{label}</p>
+        {icon}
+      </div>
+      <p className={`mt-2 text-xl font-semibold ${accent}`}>{value}</p>
+    </div>
+  );
+}
+
+function DetailChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-1 line-clamp-2 text-xs text-slate-300">{value}</p>
     </div>
   );
 }

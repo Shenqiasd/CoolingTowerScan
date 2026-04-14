@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Camera, UserCheck, MapPin, FileText, Gavel,
   Wrench, ClipboardCheck, Activity, ChevronRight,
@@ -10,7 +10,8 @@ import { SOP_PHASES, SOP_PHASE_LABELS } from '../types/project';
 import type { PipelineStep, ScanSession } from '../types/pipeline';
 import type { StatsData } from '../types/enterprise';
 
-export type SidebarView = 'dashboard' | PipelineStep;
+export type QualificationView = 'candidates' | 'leads';
+export type SidebarView = 'dashboard' | PipelineStep | QualificationView;
 
 interface Props {
   activeView: SidebarView;
@@ -62,6 +63,12 @@ const STEP_LABELS: Record<PipelineStep, string> = {
   results: '数据总览',
 };
 
+const QUALIFICATION_VIEWS: QualificationView[] = ['candidates', 'leads'];
+const QUALIFICATION_LABELS: Record<QualificationView, string> = {
+  candidates: 'Candidate 池',
+  leads: 'Lead 池',
+};
+
 export default function LifecycleSidebar({
   activeView,
   onViewChange,
@@ -76,14 +83,29 @@ export default function LifecycleSidebar({
   onReport,
 }: Props) {
   const [expandedPhase, setExpandedPhase] = useState<SopPhase | null>(
-    activeView !== 'dashboard' ? 'prospecting' : null
+    activeView === 'dashboard'
+      ? null
+      : activeView === 'candidates' || activeView === 'leads'
+        ? 'qualification'
+        : 'prospecting'
   );
+
+  useEffect(() => {
+    if (activeView === 'dashboard') {
+      setExpandedPhase(null);
+      return;
+    }
+
+    setExpandedPhase(activeView === 'candidates' || activeView === 'leads' ? 'qualification' : 'prospecting');
+  }, [activeView]);
 
   const isDashboard = activeView === 'dashboard';
   // activePhase: which phase is currently active (based on active sub-step)
-  const activePhase = (!isDashboard && (activeView === 'screenshot' || activeView === 'detection' || activeView === 'results'))
-    ? STEP_TO_PHASE[activeStep]
-    : null;
+  const activePhase = isDashboard
+    ? null
+    : activeView === 'candidates' || activeView === 'leads'
+      ? 'qualification'
+      : STEP_TO_PHASE[activeStep];
 
   return (
     <div className="w-60 bg-slate-900/80 border-r border-slate-700/40 flex flex-col h-full flex-shrink-0">
@@ -122,7 +144,7 @@ export default function LifecycleSidebar({
           const isActive = activePhase === phase;
           const isExpanded = expandedPhase === phase;
           const count = projectCounts[phase] || 0;
-          const hasSubSteps = phase === 'prospecting';
+          const hasSubSteps = phase === 'prospecting' || phase === 'qualification';
 
           return (
             <div key={phase}>
@@ -159,16 +181,15 @@ export default function LifecycleSidebar({
                 )}
               </button>
 
-              {/* Sub-steps for prospecting */}
+              {/* Sub-steps for prospecting / qualification */}
               {hasSubSteps && isExpanded && (
                 <div className="ml-9 mt-0.5 space-y-0.5">
-                  {PIPELINE_STEPS.map((step) => {
-                    const isStepActive = activeStep === step && !isDashboard;
+                  {phase === 'prospecting' && PIPELINE_STEPS.map((step) => {
+                    const isStepActive = activeStep === step && !isDashboard && activePhase === 'prospecting';
                     return (
                       <button
                         key={step}
                         onClick={() => {
-                          onViewChange(step);
                           onStepChange(step);
                         }}
                         className={`w-full text-left px-3 py-1.5 rounded text-[11px] transition-colors ${
@@ -178,6 +199,24 @@ export default function LifecycleSidebar({
                         }`}
                       >
                         {STEP_LABELS[step]}
+                      </button>
+                    );
+                  })}
+                  {phase === 'qualification' && QUALIFICATION_VIEWS.map((view) => {
+                    const isViewActive = activeView === view;
+                    return (
+                      <button
+                        key={view}
+                        onClick={() => {
+                          onViewChange(view);
+                        }}
+                        className={`w-full text-left px-3 py-1.5 rounded text-[11px] transition-colors ${
+                          isViewActive
+                            ? 'text-cyan-400 bg-cyan-600/10'
+                            : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40'
+                        }`}
+                      >
+                        {QUALIFICATION_LABELS[view]}
                       </button>
                     );
                   })}

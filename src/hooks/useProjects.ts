@@ -1,6 +1,47 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+
+import {
+  listProjects,
+  type ProjectListItem,
+} from '../api/projects';
 import type { Project, SopPhase } from '../types/project';
+import { SOP_PHASES } from '../types/project';
+
+function buildEmptyPhaseData(): Project['phase_data'] {
+  return Object.fromEntries(SOP_PHASES.map((phase) => [phase, {}])) as Project['phase_data'];
+}
+
+function mapProject(item: ProjectListItem): Project {
+  const phaseData = buildEmptyPhaseData();
+  phaseData[item.currentPhase] = {
+    riskSummary: item.riskSummary,
+    dueAt: item.currentStageDueAt,
+    ownerUserId: item.currentStageOwnerUserId,
+    approverUserId: item.currentStageApproverUserId,
+    blockers: item.currentStageBlockers,
+    pendingHandoffs: item.currentStagePendingHandoffs,
+    nextGateLabel: item.currentStageNextGateLabel,
+  };
+
+  return {
+    id: item.id,
+    project_code: item.projectCode,
+    lead_id: item.leadId,
+    enterprise_id: item.enterpriseId,
+    site_id: item.siteId,
+    name: item.name,
+    current_phase: item.currentPhase,
+    current_stage_code: item.currentStageCode,
+    current_stage_status: item.currentStageStatus,
+    phase_data: phaseData,
+    opportunity_score: item.opportunityScore,
+    priority: item.priority,
+    assigned_to: item.assignedTo,
+    status: item.workflowStatus,
+    created_at: item.createdAt,
+    updated_at: item.updatedAt,
+  };
+}
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -9,57 +50,31 @@ export function useProjects() {
 
   const fetch = useCallback(async () => {
     setLoading(true);
-    let query = supabase
-      .from('projects')
-      .select(`
-        *,
-        enterprise:enterprises(
-          enterprise_name, address, industry_category,
-          has_cooling_tower, cooling_tower_count,
-          total_cooling_capacity_rt, probability_level
-        )
-      `)
-      .order('updated_at', { ascending: false });
-
-    if (phaseFilter) {
-      query = query.eq('current_phase', phaseFilter);
+    try {
+      const items = await listProjects(phaseFilter);
+      setProjects(items.map(mapProject));
+    } catch {
+      setProjects([]);
+    } finally {
+      setLoading(false);
     }
-
-    const { data, error } = await query;
-    if (!error && data) {
-      setProjects(data as Project[]);
-    }
-    setLoading(false);
   }, [phaseFilter]);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => {
+    void fetch();
+  }, [fetch]);
 
   const createFromEnterprise = useCallback(async (enterpriseId: string) => {
-    const { data, error } = await supabase.rpc('create_project_from_enterprise', {
-      p_enterprise_id: enterpriseId,
-    });
-    if (error) throw error;
-    await fetch();
-    return data as string;
-  }, [fetch]);
+    throw new Error(`Legacy create_project_from_enterprise path is disabled: ${enterpriseId}`);
+  }, []);
 
   const updatePhase = useCallback(async (projectId: string, phase: SopPhase) => {
-    const { error } = await supabase
-      .from('projects')
-      .update({ current_phase: phase })
-      .eq('id', projectId);
-    if (error) throw error;
-    await fetch();
-  }, [fetch]);
+    throw new Error(`Project phase updates must go through the API: ${projectId}:${phase}`);
+  }, []);
 
   const updateProject = useCallback(async (projectId: string, updates: Partial<Project>) => {
-    const { error } = await supabase
-      .from('projects')
-      .update(updates)
-      .eq('id', projectId);
-    if (error) throw error;
-    await fetch();
-  }, [fetch]);
+    throw new Error(`Project updates must go through the API: ${projectId}:${JSON.stringify(updates)}`);
+  }, []);
 
   return {
     projects,

@@ -57,14 +57,19 @@ export const AGENT_PHASE_MAP: Record<AgentType, SopPhase[]> = {
 // 项目
 export interface Project {
   id: string;
+  project_code?: string;
+  lead_id?: string;
   enterprise_id: string | null;
+  site_id?: string | null;
   name: string;
   current_phase: SopPhase;
+  current_stage_code?: SopPhase;
+  current_stage_status?: 'not_started' | 'in_progress' | 'blocked' | 'pending_approval' | 'completed' | 'waived';
   phase_data: Record<SopPhase, Record<string, unknown>>;
   opportunity_score: number;
   priority: 'high' | 'medium' | 'low';
   assigned_to: string | null;
-  status: 'active' | 'on_hold' | 'completed' | 'cancelled';
+  status: 'active' | 'blocked' | 'on_hold' | 'completed' | 'cancelled';
   created_at: string;
   updated_at: string;
   // joined fields
