@@ -1,3 +1,5 @@
+import gcoord from 'gcoord';
+
 export interface SearchResult {
   name: string;
   address: string;
@@ -13,6 +15,15 @@ export interface SearchProviderResult {
 
 interface SearchLocationsResult extends SearchProviderResult {
   fallbackReason: string | null;
+}
+
+export function resolveSearchCoordinates(result: SearchResult): [number, number] {
+  const [lng, lat] = result.location.split(',').map(Number);
+  if (result.coordinateSystem === 'gcj02') {
+    return gcoord.transform([lng, lat], gcoord.GCJ02, gcoord.WGS84) as [number, number];
+  }
+
+  return [lng, lat];
 }
 
 function getAmapApiKey(): string {

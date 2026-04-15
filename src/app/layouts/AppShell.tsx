@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, lazy, Suspense, type SetStateAction } from 'react';
+import { useState, useCallback, useRef, lazy, Suspense, useEffect, type SetStateAction } from 'react';
 import { Map, List, Loader2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import MapScreenshot from '../../components/screenshot';
@@ -37,6 +37,10 @@ import { getListSelectionUpdate, type ViewTab } from '../../utils/listSelection'
 import { applyScreenshotsReady } from '../../utils/scanSession';
 import TaskStatusBanner from '../../components/discovery/TaskStatusBanner';
 import RecentTaskList from '../../components/discovery/RecentTaskList';
+import {
+  getInitialTaskBannerCollapsed,
+  TASK_BANNER_PREFERENCE_KEY,
+} from '../../components/discovery/taskBannerPreference';
 
 const MapView = lazy(() => import('../../components/MapView'));
 
@@ -87,6 +91,14 @@ function getPipelineStep(pathname: string): PipelineStep {
   return 'detection';
 }
 
+function readTaskBannerPreference(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  return window.localStorage.getItem(TASK_BANNER_PREFERENCE_KEY);
+}
+
 export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -130,6 +142,10 @@ export default function AppShell() {
   const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | null>(null);
   const [flyTo, setFlyTo] = useState<{ latitude: number; longitude: number } | null>(null);
   const [showReport, setShowReport] = useState(false);
+  const [isTaskBannerCollapsed, setIsTaskBannerCollapsed] = useState(() => getInitialTaskBannerCollapsed(
+    activeStep,
+    readTaskBannerPreference(),
+  ));
 
   const enterpriseFileRef = useRef<HTMLInputElement>(null);
   const detectionFileRef = useRef<HTMLInputElement>(null);
@@ -247,6 +263,21 @@ export default function AppShell() {
     navigate('/leads');
   }, [navigate]);
 
+  useEffect(() => {
+    setIsTaskBannerCollapsed(getInitialTaskBannerCollapsed(
+      activeStep,
+      readTaskBannerPreference(),
+    ));
+  }, [activeStep]);
+
+  const handleTaskBannerToggle = useCallback(() => {
+    setIsTaskBannerCollapsed((prev) => {
+      const next = !prev;
+      window.localStorage.setItem(TASK_BANNER_PREFERENCE_KEY, next ? 'collapsed' : 'expanded');
+      return next;
+    });
+  }, []);
+
   return (
     <div className="h-screen flex bg-slate-950 text-white overflow-hidden">
       <input
@@ -322,7 +353,12 @@ export default function AppShell() {
                   : <LeadDetailPage />
             ) : (
               <>
-                <TaskStatusBanner task={session.task} meta={taskMeta} />
+                <TaskStatusBanner
+                  task={session.task}
+                  meta={taskMeta}
+                  collapsed={activeStep === 'screenshot' ? isTaskBannerCollapsed : false}
+                  onToggleCollapse={activeStep === 'screenshot' ? handleTaskBannerToggle : undefined}
+                />
 
                 {activeStep === 'screenshot' && (
                   <div className="flex-1 flex flex-col overflow-hidden">

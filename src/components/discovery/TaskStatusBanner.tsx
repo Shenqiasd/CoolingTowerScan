@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Clock3, Eye, Radar, ScanSearch } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Clock3, Eye, Radar, ScanSearch } from 'lucide-react';
 
 import type { TaskStatusMeta } from '../../hooks/activeScanTaskModel';
 import type { ScanTask } from '../../types/scanTask';
@@ -6,6 +6,8 @@ import type { ScanTask } from '../../types/scanTask';
 interface Props {
   task: ScanTask | null | undefined;
   meta: TaskStatusMeta;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 const TONE_STYLES = {
@@ -16,7 +18,7 @@ const TONE_STYLES = {
   rose: 'border-rose-500/30 bg-rose-500/10',
 } as const;
 
-export default function TaskStatusBanner({ task, meta }: Props) {
+export default function TaskStatusBanner({ task, meta, collapsed = false, onToggleCollapse }: Props) {
   const Icon = meta.tone === 'emerald'
     ? CheckCircle2
     : meta.tone === 'amber'
@@ -26,6 +28,32 @@ export default function TaskStatusBanner({ task, meta }: Props) {
         : meta.tone === 'cyan'
           ? Radar
           : Clock3;
+
+  if (collapsed) {
+    return (
+      <div className={`border-b px-4 py-2 ${TONE_STYLES[meta.tone]}`}>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/10 px-3 py-1 text-xs font-medium text-white">
+            <Icon className="h-3.5 w-3.5" />
+            {meta.label}
+          </div>
+          <div className="min-w-0 flex-1 text-xs text-slate-200">
+            {task?.id ? `任务 ${task.id.slice(0, 8)} · ${task.screenshotCount} 张截图 · ${task.detectedCount} 张已识别` : meta.description}
+          </div>
+          {onToggleCollapse && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/10 px-2.5 py-1 text-xs text-white transition-colors hover:bg-black/20"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+              展开
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`border-b px-4 py-3 ${TONE_STYLES[meta.tone]}`}>
@@ -47,6 +75,16 @@ export default function TaskStatusBanner({ task, meta }: Props) {
             <BannerMetric icon={<Radar className="h-3.5 w-3.5" />} label={`${task.detectedCount} 张已识别`} />
             <BannerMetric icon={<Eye className="h-3.5 w-3.5" />} label={`${task.reviewedCount} 张已审核`} />
           </div>
+        )}
+        {onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/10 px-2.5 py-1 text-xs text-white transition-colors hover:bg-black/20"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+            收起
+          </button>
         )}
       </div>
     </div>

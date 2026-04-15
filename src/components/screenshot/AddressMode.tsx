@@ -1,10 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import mapboxgl from 'mapbox-gl';
-import gcoord from 'gcoord';
 import { Search, Play, StopCircle, Plus, Trash2, MapPin } from 'lucide-react';
 import MapCanvas, { type MapCanvasHandle } from './MapCanvas';
 import { runAddressCapture, estimateAddressGridCount, type CaptureResult } from './CaptureEngine';
-import { searchLocations, type SearchResult } from '../../utils/locationSearch';
+import { resolveSearchCoordinates, searchLocations, type SearchResult } from '../../utils/locationSearch';
 
 interface Props {
   token: string;
@@ -26,20 +25,6 @@ interface BatchAddress {
 }
 
 const CIRCLE_SOURCE = 'radius-circle';
-
-function gcj02ToWgs84(location: string): [number, number] {
-  const [lng, lat] = location.split(',').map(Number);
-  const [wLng, wLat] = gcoord.transform([lng, lat], gcoord.GCJ02, gcoord.WGS84);
-  return [wLng, wLat];
-}
-
-function resolveSearchCoordinates(result: SearchResult): [number, number] {
-  if (result.coordinateSystem === 'gcj02') {
-    return gcj02ToWgs84(result.location);
-  }
-
-  return result.location.split(',').map(Number) as [number, number];
-}
 
 function makeCircleGeoJSON(lng: number, lat: number, radiusM: number): GeoJSON.FeatureCollection {
   const points = 64;

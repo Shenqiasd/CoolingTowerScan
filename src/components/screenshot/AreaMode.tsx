@@ -1,11 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { Play, StopCircle, ChevronDown, ChevronUp, MousePointer2, Move } from 'lucide-react';
+import { Play, StopCircle, ChevronDown, ChevronUp, Loader2, MapPin, MousePointer2, Move, Search } from 'lucide-react';
 import MapCanvas, { type MapCanvasHandle } from './MapCanvas';
 import { runCapture, buildAreaTasks, estimateTaskCount, type CaptureResult } from './CaptureEngine';
 import TaskLaunchSummary from './TaskLaunchSummary';
 import { buildTaskLaunchSummary } from './taskLaunchSummaryModel';
 import { listPrecisionPresets, resolvePrecisionPreset, type PrecisionPreset } from './PrecisionPreset';
+import { buildAreaBoundsFromCenter } from './areaModeModel';
+import { resolveSearchCoordinates, searchLocations, type SearchResult } from '../../utils/locationSearch';
 
 interface Props {
   token: string;
@@ -13,6 +15,13 @@ interface Props {
 }
 
 interface LogEntry { time: string; message: string; type: 'info' | 'success' | 'error'; }
+
+interface SelectedCenter {
+  name: string;
+  address: string;
+  lng: number;
+  lat: number;
+}
 
 const GRID_SOURCE = 'capture-grid';
 const GRID_FILL = 'capture-grid-fill';
@@ -39,9 +48,13 @@ export default function AreaMode({ token, onComplete }: Props) {
   const [pickingMode, setPickingMode] = useState<'topLeft' | 'bottomRight' | 'drag' | null>(null);
   const [preview, setPreview] = useState<{ rows: number; cols: number; total: number } | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressTotal, setProgressTotal] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [selectedCenter, setSelectedCenter] = useState<SelectedCenter | null>(null);
 
   const addLog = useCallback((msg: string, type: LogEntry['type'] = 'info') => {
     const now = new Date();
@@ -105,6 +118,58 @@ export default function AreaMode({ token, onComplete }: Props) {
     refreshOverlay([topLeftLng,topLeftLat],[bottomRightLng,bottomRightLat],zoomLevel,overlapPct);
   }, [topLeftLng,topLeftLat,bottomRightLng,bottomRightLat,zoomLevel,overlapPct,refreshOverlay]);
 
+  const focusAreaOnCenter = useCallback((lng: number, lat: number) => {
+    const bounds = buildAreaBoundsFromCenter(lng, lat);
+    setTopLeftLng(bounds.topLeftLng);
+    setTopLeftLat(bounds.topLeftLat);
+    setBottomRightLng(bounds.bottomRightLng);
+    setBottomRightLat(bounds.bottomRightLat);
+
+    const map = mapRef.current;
+    if (map) {
+      map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 15) });
+    }
+  }, []);
+
+  const handleSearch = useCallback(async () => {
+    const keyword = searchQuery.trim();
+    if (!keyword) {
+      addLog('请输入待定位的地址或企业名称', 'error');
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchResults([]);
+    try {
+      const { results, provider, error, fallbackReason } = await searchLocations(keyword);
+      setSearchResults(results);
+      if (provider === 'osm' && fallbackReason) {
+        addLog(`高德搜索不可用，已切换备用搜索: ${fallbackReason}`, 'info');
+      }
+      if (!results.length) {
+        addLog(error ? `搜索失败: ${error}` : `未找到地址: ${keyword}`, 'error');
+      }
+    } catch (error) {
+      addLog(`搜索失败: ${String(error)}`, 'error');
+    } finally {
+      setIsSearching(false);
+    }
+  }, [addLog, searchQuery]);
+
+  const handleSelectSearchResult = useCallback((result: SearchResult) => {
+    const [lng, lat] = resolveSearchCoordinates(result);
+    const nextCenter = {
+      name: result.name,
+      address: result.address || result.name,
+      lng,
+      lat,
+    };
+    setSelectedCenter(nextCenter);
+    setSearchResults([]);
+    focusAreaOnCenter(lng, lat);
+    addLog(`已定位扫描中心: ${nextCenter.name}`, 'success');
+  }, [addLog, focusAreaOnCenter]);
+
   const handleClick = useCallback((lng: number, lat: number) => {
     if (pickingMode === 'topLeft') { setTopLeftLng(+lng.toFixed(6)); setTopLeftLat(+lat.toFixed(6)); setPickingMode(null); addLog(`左上角: [${lng.toFixed(6)}, ${lat.toFixed(6)}]`, 'success'); }
     else if (pickingMode === 'bottomRight') { setBottomRightLng(+lng.toFixed(6)); setBottomRightLat(+lat.toFixed(6)); setPickingMode(null); addLog(`右下角: [${lng.toFixed(6)}, ${lat.toFixed(6)}]`, 'success'); }
@@ -152,6 +217,7 @@ export default function AreaMode({ token, onComplete }: Props) {
   const handleCapture = useCallback(async () => {
     const map = mapRef.current;
     if (!map) return;
+    if (!selectedCenter) { addLog('请先搜索地址并定位扫描中心点', 'error'); return; }
     if (topLeftLat <= bottomRightLat) { addLog('左上角纬度必须大于右下角纬度', 'error'); return; }
     if (topLeftLng >= bottomRightLng) { addLog('左上角经度必须小于右下角经度', 'error'); return; }
 
@@ -178,7 +244,7 @@ export default function AreaMode({ token, onComplete }: Props) {
     setIsCapturing(false);
     addLog(`完成！共 ${results.length} 张截图已上传`, 'success');
     onComplete(results);
-  }, [topLeftLng, topLeftLat, bottomRightLng, bottomRightLat, zoomLevel, overlapPct, delayMs, label, preview, addLog, onComplete]);
+  }, [selectedCenter, topLeftLng, topLeftLat, bottomRightLng, bottomRightLat, zoomLevel, overlapPct, delayMs, label, preview, addLog, onComplete]);
 
   const coordInput = (label: string, val: number, set: (v: number) => void) => (
     <input
@@ -194,6 +260,55 @@ export default function AreaMode({ token, onComplete }: Props) {
       {/* Left panel */}
       <div className="w-72 flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col overflow-y-auto">
         <div className="p-4 space-y-4">
+
+          <div className="space-y-2 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+            <div className="text-xs font-medium text-cyan-200">1. 搜索地址定位扫描中心点</div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void handleSearch()}
+                placeholder="输入企业名或地址，例如：日月光"
+                className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => void handleSearch()}
+                disabled={isSearching}
+                className="inline-flex items-center justify-center rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSearching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+            {selectedCenter && (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+                <div className="flex items-center gap-1.5 font-medium">
+                  <MapPin className="h-3.5 w-3.5" />
+                  {selectedCenter.name}
+                </div>
+                <div className="mt-1 text-[11px] text-emerald-200/90">{selectedCenter.address}</div>
+              </div>
+            )}
+            {searchResults.length > 0 && (
+              <div className="max-h-48 space-y-2 overflow-y-auto">
+                {searchResults.map((result) => (
+                  <button
+                    key={`${result.name}-${result.location}`}
+                    type="button"
+                    onClick={() => handleSelectSearchResult(result)}
+                    className="block w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-left transition-colors hover:border-cyan-500/40 hover:bg-slate-800"
+                  >
+                    <div className="text-sm font-medium text-white">{result.name}</div>
+                    <div className="mt-1 text-[11px] text-slate-400">{result.address || result.location}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="text-[11px] leading-5 text-slate-400">
+              先定位中心点，系统会自动生成一块默认扫描区域；你再拖拽或拾取四角微调后开始截图。
+            </div>
+          </div>
 
           {/* Drag-select button */}
           <button
@@ -309,11 +424,11 @@ export default function AreaMode({ token, onComplete }: Props) {
           <div className="flex gap-2">
             <button
               onClick={handleCapture}
-              disabled={isCapturing || !token}
+              disabled={isCapturing || !token || !selectedCenter}
               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded text-sm font-medium bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
             >
               <Play className="w-4 h-4" />
-              {isCapturing ? '截图中...' : '开始截图'}
+              {isCapturing ? '截图中...' : selectedCenter ? '开始截图' : '先定位中心点'}
             </button>
             {isCapturing && (
               <button onClick={() => { shouldStopRef.current = true; }} className="px-3 py-2 rounded bg-red-600 hover:bg-red-500 text-white">
