@@ -94,12 +94,21 @@ export async function confirmEnterpriseMatch(
     rejection_reason: '',
   });
 
+  const enterpriseUpdate: Record<string, unknown> = {
+    match_dimension_details: {
+      source: 'area',
+      screenshot_id: screenshotId,
+    },
+  };
+
   if (detectionData.annotatedUrl) {
-    await supabase
-      .from('enterprises')
-      .update({ annotated_image_url: detectionData.annotatedUrl })
-      .eq('id', enterpriseId);
+    enterpriseUpdate.annotated_image_url = detectionData.annotatedUrl;
   }
+
+  await supabase
+    .from('enterprises')
+    .update(enterpriseUpdate)
+    .eq('id', enterpriseId);
 
   await recomputeEnterpriseHvac(createEnterpriseHvacRepo(supabase), enterpriseId);
 }

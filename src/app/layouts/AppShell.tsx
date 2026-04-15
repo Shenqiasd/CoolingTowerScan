@@ -7,6 +7,7 @@ import Header from '../../components/Header';
 import FilterBar from '../../components/FilterBar';
 import EnterpriseList from '../../components/EnterpriseList';
 import EnterpriseDetail from '../../components/EnterpriseDetail';
+import ResultsOverviewStrip from '../../components/results/ResultsOverviewStrip';
 import LifecycleSidebar from '../../components/LifecycleSidebar';
 import type { SidebarView } from '../../components/LifecycleSidebar';
 import DetectionPanel from '../../components/DetectionPanel';
@@ -354,6 +355,7 @@ export default function AppShell() {
                 {activeStep === 'results' && (
                   <div className="flex-1 flex overflow-hidden">
                     <div className="flex-1 flex flex-col overflow-hidden">
+                      <ResultsOverviewStrip stats={stats} />
                       <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-800">
                         <button
                           onClick={() => setResultView('list')}
