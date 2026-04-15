@@ -17,6 +17,8 @@ import type {
   ProjectSurveyWorkspace,
   ProjectSolutionCalculationSummary,
   ProjectSolutionCommercialBranching,
+  ProjectSolutionFreezeApproval,
+  ProjectSolutionFreezeDecision,
   ProjectSolutionSnapshot,
   ProjectSolutionTechnicalAssumptions,
   ProjectSolutionWorkspace,
@@ -317,6 +319,19 @@ function getDefaultSolutionCommercialBranching(): ProjectSolutionCommercialBranc
   };
 }
 
+function getDefaultSolutionFreezeApproval(): ProjectSolutionFreezeApproval {
+  return {
+    status: 'idle',
+    requestedAt: null,
+    requestedBy: null,
+    requestedSnapshotVersion: null,
+    requestedBranchType: null,
+    decidedAt: null,
+    decidedBy: null,
+    decisionComment: '',
+  };
+}
+
 function getSolutionCommercialBranching(
   phaseData: Record<string, unknown> | null | undefined,
 ): ProjectSolutionCommercialBranching {
@@ -352,6 +367,40 @@ function getSolutionCommercialBranching(
       contractYears: getNullableNumber((source.emc as Record<string, unknown> | undefined)?.contractYears),
       guaranteedSavingRate: getNullableNumber((source.emc as Record<string, unknown> | undefined)?.guaranteedSavingRate),
     },
+  };
+}
+
+function getSolutionFreezeApproval(
+  phaseData: Record<string, unknown> | null | undefined,
+): ProjectSolutionFreezeApproval {
+  const proposalPhase = getPhaseDataValue(phaseData, 'proposal');
+  const workspace = proposalPhase.solutionWorkspace;
+  const value = workspace && typeof workspace === 'object' && !Array.isArray(workspace)
+    ? workspace as Record<string, unknown>
+    : {};
+  const approval = value.commercialFreezeApproval;
+  const source = approval && typeof approval === 'object' && !Array.isArray(approval)
+    ? approval as Record<string, unknown>
+    : {};
+  const defaults = getDefaultSolutionFreezeApproval();
+
+  return {
+    status: source.status === 'pending_approval'
+      || source.status === 'approved'
+      || source.status === 'rejected'
+      ? source.status
+      : defaults.status,
+    requestedAt: typeof source.requestedAt === 'string' ? source.requestedAt : defaults.requestedAt,
+    requestedBy: typeof source.requestedBy === 'string' ? source.requestedBy : defaults.requestedBy,
+    requestedSnapshotVersion: getNullableNumber(source.requestedSnapshotVersion),
+    requestedBranchType: source.requestedBranchType === 'epc' || source.requestedBranchType === 'emc'
+      ? source.requestedBranchType
+      : defaults.requestedBranchType,
+    decidedAt: typeof source.decidedAt === 'string' ? source.decidedAt : defaults.decidedAt,
+    decidedBy: typeof source.decidedBy === 'string' ? source.decidedBy : defaults.decidedBy,
+    decisionComment: typeof source.decisionComment === 'string'
+      ? source.decisionComment
+      : defaults.decisionComment,
   };
 }
 
@@ -884,6 +933,7 @@ async function getProjectSolutionWorkspace(
 
   const assumptions = getSolutionTechnicalAssumptions(project.phase_data);
   const commercialBranching = getSolutionCommercialBranching(project.phase_data);
+  const commercialFreezeApproval = getSolutionFreezeApproval(project.phase_data);
   const { calculationSummary, gateErrors: technicalGateErrors } = getSolutionCalculationSummary(assumptions);
   const commercialGateErrors = getSolutionCommercialGateErrors(commercialBranching);
   const gateErrors = [...technicalGateErrors, ...commercialGateErrors];
@@ -893,6 +943,7 @@ async function getProjectSolutionWorkspace(
     projectId,
     technicalAssumptions: assumptions,
     commercialBranching,
+    commercialFreezeApproval,
     calculationSummary,
     gateValidation: {
       canSnapshot: gateErrors.length === 0,
@@ -1014,6 +1065,44 @@ async function replaceHandoffs(
   if (error) {
     throw error;
   }
+}
+
+async function insertSolutionSnapshotRecord(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  workspace: ProjectSolutionWorkspace,
+  actorUserId: string,
+  timestamp: string,
+) {
+  const latestSnapshot = await getLatestSolutionSnapshot(supabaseAdmin, projectId);
+  const nextVersion = (latestSnapshot?.versionNo ?? 0) + 1;
+  const { data, error } = await supabaseAdmin
+    .from('project_solution_snapshots')
+    .insert({
+      project_id: projectId,
+      stage_code: 'proposal',
+      version_no: nextVersion,
+      snapshot_payload: {
+        technicalAssumptions: workspace.technicalAssumptions,
+        commercialBranching: workspace.commercialBranching,
+        commercialFreezeApproval: workspace.commercialFreezeApproval,
+      },
+      calculation_summary: workspace.calculationSummary,
+      gate_errors: workspace.gateValidation.errors,
+      created_by: actorUserId || null,
+      created_at: timestamp,
+    })
+    .select('id, project_id, stage_code, version_no, snapshot_payload, calculation_summary, gate_errors, created_by, created_at')
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    snapshot: mapSolutionSnapshot(data as SolutionSnapshotRow),
+    nextVersion,
+  };
 }
 
 export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
@@ -1480,6 +1569,9 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
                 ...currentWorkspace,
                 technicalAssumptions: nextAssumptions,
                 commercialBranching: nextCommercialBranching,
+                commercialFreezeApproval: currentWorkspace.commercialFreezeApproval,
+                lastSnapshotVersion: currentWorkspace.lastSnapshotVersion,
+                lastSnapshotAt: currentWorkspace.lastSnapshotAt,
               },
             },
           },
@@ -1493,6 +1585,192 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
       await insertProjectAuditLog(supabaseAdmin, projectId, 'project.solution.updated', actorUserId, {
         changes: input,
       });
+
+      return getProjectSolutionWorkspace(supabaseAdmin, projectId);
+    },
+
+    async requestProjectSolutionFreeze(projectId, actorUserId) {
+      const existing = await getProjectRow(supabaseAdmin, projectId);
+      if (!existing) {
+        return null;
+      }
+
+      const workspace = await getProjectSolutionWorkspace(supabaseAdmin, projectId);
+      if (!workspace) {
+        return null;
+      }
+
+      const timestamp = new Date().toISOString();
+      const { nextVersion } = await insertSolutionSnapshotRecord(
+        supabaseAdmin,
+        projectId,
+        workspace,
+        actorUserId,
+        timestamp,
+      );
+      const existingStage = (existing.project_stage_states ?? []).find((item) => item.stage_code === 'proposal');
+      const currentProposalPhase = getPhaseDataValue(existing.phase_data, 'proposal');
+      const currentWorkspace = currentProposalPhase.solutionWorkspace
+        && typeof currentProposalPhase.solutionWorkspace === 'object'
+        && !Array.isArray(currentProposalPhase.solutionWorkspace)
+        ? currentProposalPhase.solutionWorkspace as Record<string, unknown>
+        : {};
+      const freezeApproval: ProjectSolutionFreezeApproval = {
+        status: 'pending_approval',
+        requestedAt: timestamp,
+        requestedBy: actorUserId || null,
+        requestedSnapshotVersion: nextVersion,
+        requestedBranchType: workspace.commercialBranching.branchType,
+        decidedAt: null,
+        decidedBy: null,
+        decisionComment: '',
+      };
+
+      const { error: projectError } = await supabaseAdmin
+        .from('projects')
+        .update({
+          phase_data: {
+            ...(existing.phase_data ?? {}),
+            proposal: {
+              ...currentProposalPhase,
+              solutionWorkspace: {
+                ...currentWorkspace,
+                technicalAssumptions: workspace.technicalAssumptions,
+                commercialBranching: workspace.commercialBranching,
+                commercialFreezeApproval: freezeApproval,
+                lastSnapshotVersion: nextVersion,
+                lastSnapshotAt: timestamp,
+              },
+            },
+          },
+        })
+        .eq('id', projectId);
+
+      if (projectError) {
+        throw projectError;
+      }
+
+      const { error: stageError } = await supabaseAdmin
+        .from('project_stage_states')
+        .upsert({
+          project_id: projectId,
+          stage_code: 'proposal',
+          status: 'pending_approval',
+          owner_user_id: existingStage?.owner_user_id ?? null,
+          approver_user_id: existingStage?.approver_user_id ?? null,
+          entered_at: existingStage?.entered_at ?? timestamp,
+          due_at: existingStage?.due_at ?? null,
+          completed_at: null,
+          blockers: existingStage?.blockers ?? [],
+          gate_snapshot: {
+            ...(existingStage?.gate_snapshot ?? {}),
+            nextGateLabel: '等待商业冻结审批',
+          },
+        }, {
+          onConflict: 'project_id,stage_code',
+          ignoreDuplicates: false,
+        });
+
+      if (stageError) {
+        throw stageError;
+      }
+
+      await insertProjectAuditLog(supabaseAdmin, projectId, 'project.solution.freeze_requested', actorUserId, {
+        versionNo: nextVersion,
+        requestedAt: timestamp,
+        branchType: workspace.commercialBranching.branchType,
+      });
+
+      return getProjectSolutionWorkspace(supabaseAdmin, projectId);
+    },
+
+    async decideProjectSolutionFreeze(projectId, decision, actorUserId, comment) {
+      const existing = await getProjectRow(supabaseAdmin, projectId);
+      if (!existing) {
+        return null;
+      }
+
+      const workspace = await getProjectSolutionWorkspace(supabaseAdmin, projectId);
+      if (!workspace) {
+        return null;
+      }
+
+      const timestamp = new Date().toISOString();
+      const existingStage = (existing.project_stage_states ?? []).find((item) => item.stage_code === 'proposal');
+      const currentProposalPhase = getPhaseDataValue(existing.phase_data, 'proposal');
+      const currentWorkspace = currentProposalPhase.solutionWorkspace
+        && typeof currentProposalPhase.solutionWorkspace === 'object'
+        && !Array.isArray(currentProposalPhase.solutionWorkspace)
+        ? currentProposalPhase.solutionWorkspace as Record<string, unknown>
+        : {};
+      const nextFreezeApproval: ProjectSolutionFreezeApproval = {
+        ...workspace.commercialFreezeApproval,
+        status: decision === 'approve' ? 'approved' : 'rejected',
+        decidedAt: timestamp,
+        decidedBy: actorUserId || null,
+        decisionComment: comment?.trim() ?? '',
+      };
+
+      const { error: projectError } = await supabaseAdmin
+        .from('projects')
+        .update({
+          phase_data: {
+            ...(existing.phase_data ?? {}),
+            proposal: {
+              ...currentProposalPhase,
+              solutionWorkspace: {
+                ...currentWorkspace,
+                technicalAssumptions: workspace.technicalAssumptions,
+                commercialBranching: workspace.commercialBranching,
+                commercialFreezeApproval: nextFreezeApproval,
+                lastSnapshotVersion: workspace.lastSnapshotVersion,
+                lastSnapshotAt: workspace.lastSnapshotAt,
+              },
+            },
+          },
+        })
+        .eq('id', projectId);
+
+      if (projectError) {
+        throw projectError;
+      }
+
+      const { error: stageError } = await supabaseAdmin
+        .from('project_stage_states')
+        .upsert({
+          project_id: projectId,
+          stage_code: 'proposal',
+          status: decision === 'approve' ? 'completed' : 'in_progress',
+          owner_user_id: existingStage?.owner_user_id ?? null,
+          approver_user_id: existingStage?.approver_user_id ?? null,
+          entered_at: existingStage?.entered_at ?? timestamp,
+          due_at: existingStage?.due_at ?? null,
+          completed_at: decision === 'approve' ? timestamp : null,
+          blockers: existingStage?.blockers ?? [],
+          gate_snapshot: {
+            ...(existingStage?.gate_snapshot ?? {}),
+            nextGateLabel: decision === 'approve' ? '商业冻结审批已通过' : '补充修改后重新提交冻结审批',
+          },
+        }, {
+          onConflict: 'project_id,stage_code',
+          ignoreDuplicates: false,
+        });
+
+      if (stageError) {
+        throw stageError;
+      }
+
+      await insertProjectAuditLog(
+        supabaseAdmin,
+        projectId,
+        decision === 'approve' ? 'project.solution.freeze_approved' : 'project.solution.freeze_rejected',
+        actorUserId,
+        {
+          versionNo: workspace.commercialFreezeApproval.requestedSnapshotVersion,
+          decidedAt: timestamp,
+          decisionComment: comment?.trim() ?? '',
+        },
+      );
 
       return getProjectSolutionWorkspace(supabaseAdmin, projectId);
     },
@@ -1512,31 +1790,14 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
         return null;
       }
 
-      const latestSnapshot = await getLatestSolutionSnapshot(supabaseAdmin, projectId);
-      const nextVersion = (latestSnapshot?.versionNo ?? 0) + 1;
       const timestamp = new Date().toISOString();
-
-      const { data, error } = await supabaseAdmin
-        .from('project_solution_snapshots')
-        .insert({
-          project_id: projectId,
-          stage_code: 'proposal',
-          version_no: nextVersion,
-          snapshot_payload: {
-            technicalAssumptions: workspace.technicalAssumptions,
-            commercialBranching: workspace.commercialBranching,
-          },
-          calculation_summary: workspace.calculationSummary,
-          gate_errors: workspace.gateValidation.errors,
-          created_by: actorUserId || null,
-          created_at: timestamp,
-        })
-        .select('id, project_id, stage_code, version_no, snapshot_payload, calculation_summary, gate_errors, created_by, created_at')
-        .single();
-
-      if (error) {
-        throw error;
-      }
+      const { snapshot, nextVersion } = await insertSolutionSnapshotRecord(
+        supabaseAdmin,
+        projectId,
+        workspace,
+        actorUserId,
+        timestamp,
+      );
 
       const currentProposalPhase = getPhaseDataValue(existing.phase_data, 'proposal');
       const { error: projectError } = await supabaseAdmin
@@ -1549,6 +1810,7 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
               solutionWorkspace: {
                 technicalAssumptions: workspace.technicalAssumptions,
                 commercialBranching: workspace.commercialBranching,
+                commercialFreezeApproval: workspace.commercialFreezeApproval,
                 lastSnapshotVersion: nextVersion,
                 lastSnapshotAt: timestamp,
               },
@@ -1566,7 +1828,7 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
         createdAt: timestamp,
       });
 
-      return mapSolutionSnapshot(data as SolutionSnapshotRow);
+      return snapshot;
     },
   };
 }

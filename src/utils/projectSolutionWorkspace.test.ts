@@ -70,6 +70,16 @@ test('serializeSolutionWorkspaceDraft trims text and converts numeric fields int
         guaranteedSavingRate: '',
       },
     },
+    commercialFreezeApproval: {
+      status: 'idle',
+      requestedAt: null,
+      requestedBy: null,
+      requestedSnapshotVersion: null,
+      requestedBranchType: null,
+      decidedAt: null,
+      decidedBy: null,
+      decisionComment: '',
+    },
     calculationSummary: {
       baselineAnnualEnergyKwh: 320000,
       targetAnnualEnergyKwh: 210000,

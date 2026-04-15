@@ -30,6 +30,20 @@ export interface ProjectSolutionCommercialBranching {
   emc: ProjectSolutionEmcCommercial;
 }
 
+export type ProjectSolutionFreezeStatus = 'idle' | 'pending_approval' | 'approved' | 'rejected';
+export type ProjectSolutionFreezeDecision = 'approve' | 'reject';
+
+export interface ProjectSolutionFreezeApproval {
+  status: ProjectSolutionFreezeStatus;
+  requestedAt: string | null;
+  requestedBy: string | null;
+  requestedSnapshotVersion: number | null;
+  requestedBranchType: ProjectCommercialBranchType | null;
+  decidedAt: string | null;
+  decidedBy: string | null;
+  decisionComment: string;
+}
+
 export interface ProjectSolutionCalculationSummary {
   baselineAnnualEnergyKwh: number;
   targetAnnualEnergyKwh: number;
@@ -49,6 +63,7 @@ export interface ProjectSolutionWorkspace {
   projectId: string;
   technicalAssumptions: ProjectSolutionTechnicalAssumptions;
   commercialBranching: ProjectSolutionCommercialBranching;
+  commercialFreezeApproval: ProjectSolutionFreezeApproval;
   calculationSummary: ProjectSolutionCalculationSummary;
   gateValidation: ProjectSolutionGateValidation;
   lastSnapshotVersion: number;
@@ -101,6 +116,7 @@ export interface ProjectSolutionWorkspaceDraft {
   projectId: string;
   technicalAssumptions: ProjectSolutionTechnicalAssumptionsDraft;
   commercialBranching: ProjectSolutionCommercialBranchingDraft;
+  commercialFreezeApproval: ProjectSolutionFreezeApproval;
   calculationSummary: ProjectSolutionCalculationSummary;
   gateValidation: ProjectSolutionGateValidation;
   lastSnapshotVersion: number;
@@ -214,6 +230,19 @@ function createDefaultCommercialBranching(): ProjectSolutionCommercialBranching 
   };
 }
 
+function createDefaultSolutionFreezeApproval(): ProjectSolutionFreezeApproval {
+  return {
+    status: 'idle',
+    requestedAt: null,
+    requestedBy: null,
+    requestedSnapshotVersion: null,
+    requestedBranchType: null,
+    decidedAt: null,
+    decidedBy: null,
+    decisionComment: '',
+  };
+}
+
 export function createDefaultSolutionWorkspace(projectId: string): ProjectSolutionWorkspace {
   return {
     projectId,
@@ -227,6 +256,7 @@ export function createDefaultSolutionWorkspace(projectId: string): ProjectSoluti
       systemLossFactor: null,
     },
     commercialBranching: createDefaultCommercialBranching(),
+    commercialFreezeApproval: createDefaultSolutionFreezeApproval(),
     calculationSummary: zeroCalculationSummary(),
     gateValidation: {
       canSnapshot: false,
@@ -266,6 +296,7 @@ export function createSolutionWorkspaceDraft(
         guaranteedSavingRate: toDraftNumber(workspace.commercialBranching.emc.guaranteedSavingRate),
       },
     },
+    commercialFreezeApproval: workspace.commercialFreezeApproval,
     calculationSummary: workspace.calculationSummary,
     gateValidation: workspace.gateValidation,
     lastSnapshotVersion: workspace.lastSnapshotVersion,

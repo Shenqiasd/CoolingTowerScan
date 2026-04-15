@@ -277,6 +277,33 @@ export interface ProjectSolutionCommercialBranching {
   emc: ProjectSolutionEmcCommercial;
 }
 
+export const PROJECT_SOLUTION_FREEZE_STATUSES = [
+  'idle',
+  'pending_approval',
+  'approved',
+  'rejected',
+] as const;
+
+export type ProjectSolutionFreezeStatus = typeof PROJECT_SOLUTION_FREEZE_STATUSES[number];
+
+export const PROJECT_SOLUTION_FREEZE_DECISIONS = [
+  'approve',
+  'reject',
+] as const;
+
+export type ProjectSolutionFreezeDecision = typeof PROJECT_SOLUTION_FREEZE_DECISIONS[number];
+
+export interface ProjectSolutionFreezeApproval {
+  status: ProjectSolutionFreezeStatus;
+  requestedAt: string | null;
+  requestedBy: string | null;
+  requestedSnapshotVersion: number | null;
+  requestedBranchType: ProjectCommercialBranchType | null;
+  decidedAt: string | null;
+  decidedBy: string | null;
+  decisionComment: string;
+}
+
 export interface ProjectSolutionCalculationSummary {
   baselineAnnualEnergyKwh: number;
   targetAnnualEnergyKwh: number;
@@ -296,6 +323,7 @@ export interface ProjectSolutionWorkspace {
   projectId: string;
   technicalAssumptions: ProjectSolutionTechnicalAssumptions;
   commercialBranching: ProjectSolutionCommercialBranching;
+  commercialFreezeApproval: ProjectSolutionFreezeApproval;
   calculationSummary: ProjectSolutionCalculationSummary;
   gateValidation: ProjectSolutionGateValidation;
   lastSnapshotVersion: number;
@@ -345,6 +373,16 @@ export interface ProjectRepo {
     projectId: string,
     input: UpdateProjectSolutionWorkspaceInput,
     actorUserId: string,
+  ): Promise<ProjectSolutionWorkspace | null>;
+  requestProjectSolutionFreeze(
+    projectId: string,
+    actorUserId: string,
+  ): Promise<ProjectSolutionWorkspace | null>;
+  decideProjectSolutionFreeze(
+    projectId: string,
+    decision: ProjectSolutionFreezeDecision,
+    actorUserId: string,
+    comment?: string,
   ): Promise<ProjectSolutionWorkspace | null>;
   listProjectSolutionSnapshots(projectId: string): Promise<ProjectSolutionSnapshot[]>;
   createProjectSolutionSnapshot(projectId: string, actorUserId: string): Promise<ProjectSolutionSnapshot | null>;

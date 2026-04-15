@@ -6,6 +6,7 @@ import type {
   ProjectListFilters,
   ProjectLeadSnapshot,
   ProjectRepo,
+  ProjectSolutionFreezeDecision,
   ProjectSolutionSnapshot,
   ProjectSolutionTechnicalAssumptions,
   ProjectSolutionWorkspace,
@@ -242,6 +243,19 @@ export class ProjectService {
       }));
     }
 
+    const current = await this.repo.getProjectSolutionWorkspace(id);
+    if (!current) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    if (current.commercialFreezeApproval.status === 'pending_approval') {
+      throw new AppError(
+        409,
+        'PROJECT_SOLUTION_FREEZE_LOCKED',
+        'Solution workspace is locked while freeze approval is pending.',
+      );
+    }
+
     const item = await this.repo.updateProjectSolutionWorkspace(id, input, actorUserId);
     if (!item) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
@@ -282,6 +296,104 @@ export class ProjectService {
     }
 
     const item = await this.repo.createProjectSolutionSnapshot(id, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async requestProjectSolutionFreeze(projectId: string, actorUserId: string): Promise<ProjectSolutionWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+
+    const detail = await this.repo.getProjectById(id);
+    if (!detail) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    const proposalStage = detail.stages.find((item) => item.stageCode === 'proposal');
+    if (!proposalStage?.approverUserId) {
+      throw new AppError(
+        409,
+        'PROJECT_SOLUTION_FREEZE_APPROVER_REQUIRED',
+        'Proposal stage approver is required before requesting freeze approval.',
+      );
+    }
+
+    const current = await this.repo.getProjectSolutionWorkspace(id);
+    if (!current) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    if (!current.gateValidation.canSnapshot) {
+      throw new AppError(
+        409,
+        'PROJECT_SOLUTION_VALIDATION_FAILED',
+        'Solution workspace is not ready to request freeze approval.',
+        {
+          errors: current.gateValidation.errors,
+        },
+      );
+    }
+
+    if (current.commercialFreezeApproval.status === 'pending_approval') {
+      throw new AppError(
+        409,
+        'PROJECT_SOLUTION_FREEZE_ALREADY_PENDING',
+        'Solution freeze approval is already pending.',
+      );
+    }
+
+    const item = await this.repo.requestProjectSolutionFreeze(id, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async decideProjectSolutionFreeze(
+    projectId: string,
+    decision: ProjectSolutionFreezeDecision,
+    actorUserId: string,
+    comment?: string,
+  ): Promise<ProjectSolutionWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+
+    const current = await this.repo.getProjectSolutionWorkspace(id);
+    if (!current) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    if (current.commercialFreezeApproval.status !== 'pending_approval') {
+      throw new AppError(
+        409,
+        'PROJECT_SOLUTION_FREEZE_NOT_PENDING',
+        'Solution freeze approval is not pending.',
+      );
+    }
+
+    const detail = await this.repo.getProjectById(id);
+    if (!detail) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    const proposalStage = detail.stages.find((item) => item.stageCode === 'proposal');
+    if (!proposalStage?.approverUserId || proposalStage.approverUserId !== actorUserId) {
+      throw new AppError(
+        403,
+        'PROJECT_SOLUTION_FREEZE_APPROVER_ONLY',
+        'Only the proposal stage approver can decide solution freeze approval.',
+      );
+    }
+
+    const item = await this.repo.decideProjectSolutionFreeze(id, decision, actorUserId, comment);
     if (!item) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
     }

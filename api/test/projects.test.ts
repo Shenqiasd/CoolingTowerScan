@@ -94,6 +94,19 @@ const PROJECT_DETAIL: ProjectDetail = {
       blockers: [],
       gateSnapshot: {},
     },
+    {
+      stageCode: 'proposal',
+      status: 'in_progress',
+      ownerUserId: 'solution-owner-1',
+      approverUserId: 'approver-user-1',
+      enteredAt: '2026-04-14T12:00:00.000Z',
+      dueAt: '2026-04-20T09:00:00.000Z',
+      completedAt: null,
+      blockers: [],
+      gateSnapshot: {
+        nextGateLabel: '冻结方案并提交商务审批',
+      },
+    },
   ],
 } as ProjectDetail;
 
@@ -253,6 +266,16 @@ const PROJECT_SOLUTION_WORKSPACE: ProjectSolutionWorkspace = {
       guaranteedSavingRate: null,
     },
   },
+  commercialFreezeApproval: {
+    status: 'idle',
+    requestedAt: null,
+    requestedBy: null,
+    requestedSnapshotVersion: null,
+    requestedBranchType: null,
+    decidedAt: null,
+    decidedBy: null,
+    decisionComment: '',
+  },
   calculationSummary: {
     baselineAnnualEnergyKwh: 4558032,
     targetAnnualEnergyKwh: 2848770,
@@ -305,6 +328,16 @@ const INVALID_PROJECT_SOLUTION_WORKSPACE: ProjectSolutionWorkspace = {
       guaranteedSavingRate: null,
     },
   },
+  commercialFreezeApproval: {
+    status: 'idle',
+    requestedAt: null,
+    requestedBy: null,
+    requestedSnapshotVersion: null,
+    requestedBranchType: null,
+    decidedAt: null,
+    decidedBy: null,
+    decisionComment: '',
+  },
   gateValidation: {
     canSnapshot: false,
     errors: [
@@ -340,7 +373,7 @@ async function createToken(userId: string) {
     .setSubject(userId)
     .setIssuedAt()
     .setExpirationTime('1h')
-    .sign(new TextEncoder().encode(TEST_ENV.supabaseJwtSecret));
+    .sign(new TextEncoder().encode(TEST_ENV.supabaseJwtSecret ?? ''));
 }
 
 function createRepo(
@@ -369,6 +402,36 @@ function createRepo(
     completeProjectSurveyWorkspace: vi.fn(async () => PROJECT_SURVEY_WORKSPACE),
     getProjectSolutionWorkspace: vi.fn(async () => PROJECT_SOLUTION_WORKSPACE),
     updateProjectSolutionWorkspace: vi.fn(async () => PROJECT_SOLUTION_WORKSPACE),
+    requestProjectSolutionFreeze: vi.fn(async () => ({
+      ...PROJECT_SOLUTION_WORKSPACE,
+      commercialFreezeApproval: {
+        status: 'pending_approval',
+        requestedAt: '2026-04-15T10:00:00.000Z',
+        requestedBy: 'pm-user-1',
+        requestedSnapshotVersion: 2,
+        requestedBranchType: 'epc',
+        decidedAt: null,
+        decidedBy: null,
+        decisionComment: '',
+      },
+      lastSnapshotVersion: 2,
+      lastSnapshotAt: '2026-04-15T10:00:00.000Z',
+    })),
+    decideProjectSolutionFreeze: vi.fn(async (_projectId, decision) => ({
+      ...PROJECT_SOLUTION_WORKSPACE,
+      commercialFreezeApproval: {
+        status: decision === 'approve' ? 'approved' : 'rejected',
+        requestedAt: '2026-04-15T10:00:00.000Z',
+        requestedBy: 'pm-user-1',
+        requestedSnapshotVersion: 2,
+        requestedBranchType: 'epc',
+        decidedAt: '2026-04-15T11:00:00.000Z',
+        decidedBy: 'approver-user-1',
+        decisionComment: '',
+      },
+      lastSnapshotVersion: 2,
+      lastSnapshotAt: '2026-04-15T10:00:00.000Z',
+    })),
     createProjectSolutionSnapshot: vi.fn(async () => PROJECT_SOLUTION_SNAPSHOT),
   } as unknown as ProjectRepo;
 }
@@ -895,6 +958,55 @@ describe('project routes', () => {
     });
   });
 
+  it('blocks solution workspace updates while freeze approval is pending', async () => {
+    const repo = createRepo();
+    (repo as unknown as { getProjectSolutionWorkspace: ReturnType<typeof vi.fn> }).getProjectSolutionWorkspace
+      .mockResolvedValueOnce({
+        ...PROJECT_SOLUTION_WORKSPACE,
+        commercialFreezeApproval: {
+          status: 'pending_approval',
+          requestedAt: '2026-04-15T10:00:00.000Z',
+          requestedBy: 'pm-user-1',
+          requestedSnapshotVersion: 2,
+          requestedBranchType: 'epc',
+          decidedAt: null,
+          decidedBy: null,
+          decisionComment: '',
+        },
+      });
+
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/v1/projects/project-1/solution-workspace',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        technicalAssumptions: {
+          ...PROJECT_SOLUTION_WORKSPACE.technicalAssumptions,
+          baselineLoadRt: 820,
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((repo as unknown as { updateProjectSolutionWorkspace: ReturnType<typeof vi.fn> }).updateProjectSolutionWorkspace)
+      .not.toHaveBeenCalled();
+    expect(response.json()).toEqual({
+      error: {
+        code: 'PROJECT_SOLUTION_FREEZE_LOCKED',
+        message: 'Solution workspace is locked while freeze approval is pending.',
+        details: {},
+      },
+    });
+  });
+
   it('blocks solution snapshot creation when calculator gate validation fails', async () => {
     const repo = createRepo();
     (repo as unknown as { getProjectSolutionWorkspace: ReturnType<typeof vi.fn> }).getProjectSolutionWorkspace
@@ -924,6 +1036,183 @@ describe('project routes', () => {
         details: {
           errors: INVALID_PROJECT_SOLUTION_WORKSPACE.gateValidation.errors,
         },
+      },
+    });
+  });
+
+  it('requests solution freeze approval after gate validation passes', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/projects/project-1/solution-freeze-request',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { requestProjectSolutionFreeze: ReturnType<typeof vi.fn> }).requestProjectSolutionFreeze)
+      .toHaveBeenCalledWith('project-1', 'pm-user-1');
+    expect(response.json()).toEqual({
+      item: {
+        ...PROJECT_SOLUTION_WORKSPACE,
+        commercialFreezeApproval: {
+          status: 'pending_approval',
+          requestedAt: '2026-04-15T10:00:00.000Z',
+          requestedBy: 'pm-user-1',
+          requestedSnapshotVersion: 2,
+          requestedBranchType: 'epc',
+          decidedAt: null,
+          decidedBy: null,
+          decisionComment: '',
+        },
+        lastSnapshotVersion: 2,
+        lastSnapshotAt: '2026-04-15T10:00:00.000Z',
+      },
+    });
+  });
+
+  it('blocks solution freeze request when proposal approver is missing', async () => {
+    const repo = createRepo();
+    (repo as unknown as { getProjectById: ReturnType<typeof vi.fn> }).getProjectById.mockResolvedValueOnce({
+      ...PROJECT_DETAIL,
+      stages: PROJECT_DETAIL.stages.map((stage) => (
+        stage.stageCode === 'proposal'
+          ? { ...stage, approverUserId: null }
+          : stage
+      )),
+    });
+
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/projects/project-1/solution-freeze-request',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((repo as unknown as { requestProjectSolutionFreeze: ReturnType<typeof vi.fn> }).requestProjectSolutionFreeze)
+      .not.toHaveBeenCalled();
+    expect(response.json()).toEqual({
+      error: {
+        code: 'PROJECT_SOLUTION_FREEZE_APPROVER_REQUIRED',
+        message: 'Proposal stage approver is required before requesting freeze approval.',
+        details: {},
+      },
+    });
+  });
+
+  it('records solution freeze approval decisions', async () => {
+    const repo = createRepo();
+    (repo as unknown as { getProjectSolutionWorkspace: ReturnType<typeof vi.fn> }).getProjectSolutionWorkspace
+      .mockResolvedValueOnce({
+        ...PROJECT_SOLUTION_WORKSPACE,
+        commercialFreezeApproval: {
+          status: 'pending_approval',
+          requestedAt: '2026-04-15T10:00:00.000Z',
+          requestedBy: 'pm-user-1',
+          requestedSnapshotVersion: 2,
+          requestedBranchType: 'epc',
+          decidedAt: null,
+          decidedBy: null,
+          decisionComment: '',
+        },
+      });
+
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('approver-user-1');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/projects/project-1/solution-freeze-decision',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        action: 'approve',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { decideProjectSolutionFreeze: ReturnType<typeof vi.fn> }).decideProjectSolutionFreeze)
+      .toHaveBeenCalledWith('project-1', 'approve', 'approver-user-1', undefined);
+    expect(response.json()).toEqual({
+      item: {
+        ...PROJECT_SOLUTION_WORKSPACE,
+        commercialFreezeApproval: {
+          status: 'approved',
+          requestedAt: '2026-04-15T10:00:00.000Z',
+          requestedBy: 'pm-user-1',
+          requestedSnapshotVersion: 2,
+          requestedBranchType: 'epc',
+          decidedAt: '2026-04-15T11:00:00.000Z',
+          decidedBy: 'approver-user-1',
+          decisionComment: '',
+        },
+        lastSnapshotVersion: 2,
+        lastSnapshotAt: '2026-04-15T10:00:00.000Z',
+      },
+    });
+  });
+
+  it('blocks solution freeze decisions from non-approver users', async () => {
+    const repo = createRepo();
+    (repo as unknown as { getProjectSolutionWorkspace: ReturnType<typeof vi.fn> }).getProjectSolutionWorkspace
+      .mockResolvedValueOnce({
+        ...PROJECT_SOLUTION_WORKSPACE,
+        commercialFreezeApproval: {
+          status: 'pending_approval',
+          requestedAt: '2026-04-15T10:00:00.000Z',
+          requestedBy: 'pm-user-1',
+          requestedSnapshotVersion: 2,
+          requestedBranchType: 'epc',
+          decidedAt: null,
+          decidedBy: null,
+          decisionComment: '',
+        },
+      });
+
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('other-user-1');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/projects/project-1/solution-freeze-decision',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        action: 'reject',
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect((repo as unknown as { decideProjectSolutionFreeze: ReturnType<typeof vi.fn> }).decideProjectSolutionFreeze)
+      .not.toHaveBeenCalled();
+    expect(response.json()).toEqual({
+      error: {
+        code: 'PROJECT_SOLUTION_FREEZE_APPROVER_ONLY',
+        message: 'Only the proposal stage approver can decide solution freeze approval.',
+        details: {},
       },
     });
   });

@@ -18,12 +18,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import {
   completeProjectSurvey,
+  decideProjectSolutionFreeze,
   createProjectSolutionSnapshot,
   getProjectAudit,
   getProjectDetail,
   getProjectSolutionWorkspace,
   getProjectSurveyWorkspace,
   listProjectSolutionSnapshots,
+  requestProjectSolutionFreeze,
   updateProject,
   updateProjectSolutionWorkspace,
   updateProjectSurveyWorkspace,
@@ -33,6 +35,7 @@ import {
   type ProjectPriority,
   type ProjectSolutionSnapshot,
   type ProjectSolutionWorkspace,
+  type ProjectSolutionFreezeDecision,
   type ProjectStageData,
   type ProjectStageStatus,
   type ProjectWorkflowStatus,
@@ -65,6 +68,7 @@ import {
   type ProjectSurveyWorkspaceDraft,
   type SurveyRecordDraft,
 } from '../../utils/projectSurveyWorkspace';
+import { supabase } from '../../lib/supabase';
 
 const STAGE_STATUS_LABELS: Record<ProjectStageStatus, string> = {
   not_started: '未开始',
@@ -93,6 +97,13 @@ const COMMERCIAL_BRANCH_LABELS: Record<ProjectCommercialBranchType, string> = {
   epc: 'EPC',
   emc: 'EMC',
 };
+
+const SOLUTION_FREEZE_STATUS_LABELS = {
+  idle: '未提交',
+  pending_approval: '待审批',
+  approved: '已批准',
+  rejected: '已驳回',
+} as const;
 
 interface ProjectDraft {
   name: string;
@@ -216,6 +227,7 @@ export default function ProjectDetailPage() {
   const [solutionWorkspace, setSolutionWorkspace] = useState<ProjectSolutionWorkspace | null>(null);
   const [solutionDraft, setSolutionDraft] = useState<ProjectSolutionWorkspaceDraft | null>(null);
   const [solutionSnapshots, setSolutionSnapshots] = useState<ProjectSolutionSnapshot[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
@@ -227,6 +239,8 @@ export default function ProjectDetailPage() {
   const [completingSurvey, setCompletingSurvey] = useState(false);
   const [savingSolution, setSavingSolution] = useState(false);
   const [snapshottingSolution, setSnapshottingSolution] = useState(false);
+  const [requestingSolutionFreeze, setRequestingSolutionFreeze] = useState(false);
+  const [decidingSolutionFreeze, setDecidingSolutionFreeze] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadProject = useCallback(async () => {
@@ -312,6 +326,26 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     void loadProject();
   }, [loadProject]);
+
+  useEffect(() => {
+    let mounted = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (mounted) {
+        setCurrentUserId(data.session?.user?.id ?? null);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUserId(session?.user?.id ?? null);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const handleProjectDraftChange = useCallback(
     <K extends keyof ProjectDraft,>(key: K, value: ProjectDraft[K]) => {
@@ -658,6 +692,50 @@ export default function ProjectDetailPage() {
     }
   }, [loadProject, projectId]);
 
+  const handleRequestSolutionFreeze = useCallback(async () => {
+    if (!projectId || !solutionDraft) {
+      return;
+    }
+
+    setRequestingSolutionFreeze(true);
+    setSolutionError(null);
+    setNotice(null);
+
+    try {
+      await updateProjectSolutionWorkspace(
+        projectId,
+        serializeSolutionWorkspaceDraft(solutionDraft),
+      );
+      await requestProjectSolutionFreeze(projectId);
+      await loadProject();
+      setNotice('已提交商业冻结审批，并生成正式快照');
+    } catch (nextError) {
+      setSolutionError(getErrorMessage(nextError));
+    } finally {
+      setRequestingSolutionFreeze(false);
+    }
+  }, [loadProject, projectId, solutionDraft]);
+
+  const handleDecideSolutionFreeze = useCallback(async (action: ProjectSolutionFreezeDecision) => {
+    if (!projectId) {
+      return;
+    }
+
+    setDecidingSolutionFreeze(true);
+    setSolutionError(null);
+    setNotice(null);
+
+    try {
+      await decideProjectSolutionFreeze(projectId, action);
+      await loadProject();
+      setNotice(action === 'approve' ? '商业冻结审批已批准' : '商业冻结审批已驳回');
+    } catch (nextError) {
+      setSolutionError(getErrorMessage(nextError));
+    } finally {
+      setDecidingSolutionFreeze(false);
+    }
+  }, [loadProject, projectId]);
+
   const defaultSolutionWorkspace = createDefaultSolutionWorkspace(projectId);
   const serializedSolutionDraft = solutionDraft
     ? serializeSolutionWorkspaceDraft(solutionDraft)
@@ -670,6 +748,7 @@ export default function ProjectDetailPage() {
   const activeCommercialBranching = solutionDraft
     ? serializedSolutionDraft?.commercialBranching ?? defaultSolutionWorkspace.commercialBranching
     : solutionWorkspace?.commercialBranching ?? defaultSolutionWorkspace.commercialBranching;
+  const activeFreezeApproval = solutionWorkspace?.commercialFreezeApproval ?? defaultSolutionWorkspace.commercialFreezeApproval;
   const solutionGateBreakdown = solutionWorkspace
     ? splitSolutionGateErrors(activeGateValidation.errors)
     : { technical: [], commercial: [] };
@@ -679,6 +758,13 @@ export default function ProjectDetailPage() {
       calculationSummary: activeCalculationSummary,
     })
     : [];
+  const proposalStage = item?.stages.find((stage) => stage.stageCode === 'proposal') ?? null;
+  const isSolutionFreezePending = activeFreezeApproval.status === 'pending_approval';
+  const isCurrentProposalApprover = Boolean(
+    proposalStage?.approverUserId
+    && currentUserId
+    && proposalStage.approverUserId === currentUserId,
+  );
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950">
@@ -1199,7 +1285,7 @@ export default function ProjectDetailPage() {
                 )}
                 <button
                   onClick={() => void handleSaveSolutionWorkspace()}
-                  disabled={savingSolution || !solutionDraft}
+                  disabled={savingSolution || !solutionDraft || isSolutionFreezePending}
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-200 transition-colors hover:border-cyan-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {savingSolution ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -1207,7 +1293,7 @@ export default function ProjectDetailPage() {
                 </button>
                 <button
                   onClick={() => void handleCreateSolutionSnapshot()}
-                  disabled={snapshottingSolution || !solutionDraft || !activeGateValidation.canSnapshot}
+                  disabled={snapshottingSolution || !solutionDraft || !activeGateValidation.canSnapshot || isSolutionFreezePending}
                   className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:bg-amber-900/40"
                 >
                   {snapshottingSolution ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
@@ -1285,123 +1371,198 @@ export default function ProjectDetailPage() {
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <h4 className="text-sm font-medium text-white">商业分支</h4>
-                      <p className="mt-1 text-xs text-slate-500">先确定当前方案走 EPC 还是 EMC，再补齐分支字段。</p>
+                      <h4 className="text-sm font-medium text-white">商业冻结审批</h4>
+                      <p className="mt-1 text-xs text-slate-500">提交审批会先保存当前草稿，并生成一版正式快照作为审批底稿。</p>
+                      {isSolutionFreezePending ? (
+                        <p className="mt-2 text-xs text-amber-300">审批进行中，方案编辑已锁定，避免审批版本漂移。</p>
+                      ) : null}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {(['epc', 'emc'] as ProjectCommercialBranchType[]).map((branch) => (
-                        <button
-                          key={branch}
-                          onClick={() => handleSolutionBranchTypeChange(branch)}
-                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                            solutionDraft.commercialBranching.branchType === branch
-                              ? 'bg-cyan-600 text-white'
-                              : 'border border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-500/50 hover:text-white'
-                          }`}
-                        >
-                          {COMMERCIAL_BRANCH_LABELS[branch]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <label className="space-y-2 text-xs text-slate-400">
-                      <span>分支决策说明</span>
-                      <textarea
-                        value={solutionDraft.commercialBranching.branchDecisionNote}
-                        onChange={(event) => handleSolutionBranchNoteChange(event.target.value)}
-                        className="min-h-[88px] w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none"
-                        placeholder="记录为什么选 EPC 或 EMC，以及当前商务判断"
-                      />
-                    </label>
-                    <label className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 text-xs text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={solutionDraft.commercialBranching.freezeReady}
-                        onChange={(event) => handleSolutionFreezeReadyChange(event.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded border-slate-700 bg-slate-950 text-cyan-500"
-                      />
-                      <span>
-                        当前商业分支字段已确认，可以进入快照冻结前校验。
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`rounded-full px-2.5 py-1 ${
+                        activeFreezeApproval.status === 'approved'
+                          ? 'bg-emerald-500/15 text-emerald-300'
+                          : activeFreezeApproval.status === 'rejected'
+                            ? 'bg-rose-500/15 text-rose-300'
+                            : activeFreezeApproval.status === 'pending_approval'
+                              ? 'bg-amber-500/15 text-amber-300'
+                              : 'bg-slate-800 text-slate-300'
+                      }`}>
+                        {SOLUTION_FREEZE_STATUS_LABELS[activeFreezeApproval.status]}
                       </span>
-                    </label>
-                  </div>
-
-                  {solutionDraft.commercialBranching.branchType === 'epc' ? (
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      <label className="space-y-2 text-xs text-slate-400">
-                        <span>设备投资额</span>
-                        <input value={solutionDraft.commercialBranching.epc.capexCny} onChange={(event) => handleSolutionEpcDraftChange('capexCny', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                      </label>
-                      <label className="space-y-2 text-xs text-slate-400">
-                        <span>目标毛利率</span>
-                        <input value={solutionDraft.commercialBranching.epc.grossMarginRate} onChange={(event) => handleSolutionEpcDraftChange('grossMarginRate', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                      </label>
-                      <label className="space-y-2 text-xs text-slate-400">
-                        <span>交付周期(月)</span>
-                        <input value={solutionDraft.commercialBranching.epc.deliveryMonths} onChange={(event) => handleSolutionEpcDraftChange('deliveryMonths', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                      </label>
-                    </div>
-                  ) : null}
-
-                  {solutionDraft.commercialBranching.branchType === 'emc' ? (
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      <label className="space-y-2 text-xs text-slate-400">
-                        <span>收益分成比例</span>
-                        <input value={solutionDraft.commercialBranching.emc.sharedSavingRate} onChange={(event) => handleSolutionEmcDraftChange('sharedSavingRate', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                      </label>
-                      <label className="space-y-2 text-xs text-slate-400">
-                        <span>合同年限</span>
-                        <input value={solutionDraft.commercialBranching.emc.contractYears} onChange={(event) => handleSolutionEmcDraftChange('contractYears', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                      </label>
-                      <label className="space-y-2 text-xs text-slate-400">
-                        <span>保底节能率</span>
-                        <input value={solutionDraft.commercialBranching.emc.guaranteedSavingRate} onChange={(event) => handleSolutionEmcDraftChange('guaranteedSavingRate', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                      </label>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-                  <h4 className="text-sm font-medium text-white">技术假设</h4>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <label className="space-y-2 text-xs text-slate-400">
-                      <span>基线负荷 RT</span>
-                      <input value={solutionDraft.technicalAssumptions.baselineLoadRt} onChange={(event) => handleSolutionDraftChange('baselineLoadRt', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                    </label>
-                    <label className="space-y-2 text-xs text-slate-400">
-                      <span>目标负荷 RT</span>
-                      <input value={solutionDraft.technicalAssumptions.targetLoadRt} onChange={(event) => handleSolutionDraftChange('targetLoadRt', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                    </label>
-                    <label className="space-y-2 text-xs text-slate-400">
-                      <span>年运行小时</span>
-                      <input value={solutionDraft.technicalAssumptions.operatingHoursPerYear} onChange={(event) => handleSolutionDraftChange('operatingHoursPerYear', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                    </label>
-                    <label className="space-y-2 text-xs text-slate-400">
-                      <span>电价 元/kWh</span>
-                      <input value={solutionDraft.technicalAssumptions.electricityPricePerKwh} onChange={(event) => handleSolutionDraftChange('electricityPricePerKwh', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                    </label>
-                    <label className="space-y-2 text-xs text-slate-400">
-                      <span>基线 COP</span>
-                      <input value={solutionDraft.technicalAssumptions.baselineCop} onChange={(event) => handleSolutionDraftChange('baselineCop', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                    </label>
-                    <label className="space-y-2 text-xs text-slate-400">
-                      <span>目标 COP</span>
-                      <input value={solutionDraft.technicalAssumptions.targetCop} onChange={(event) => handleSolutionDraftChange('targetCop', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                    </label>
-                    <label className="space-y-2 text-xs text-slate-400">
-                      <span>系统损耗系数</span>
-                      <input value={solutionDraft.technicalAssumptions.systemLossFactor} onChange={(event) => handleSolutionDraftChange('systemLossFactor', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
-                    </label>
-                    <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 text-xs text-slate-400">
-                      <p>快照版本：V{solutionWorkspace.lastSnapshotVersion || 0}</p>
-                      <p className="mt-2">最近时间：{solutionWorkspace.lastSnapshotAt ? new Date(solutionWorkspace.lastSnapshotAt).toLocaleString('zh-CN') : '尚未创建'}</p>
+                      <span className="text-slate-500">审批人 {proposalStage?.approverUserId || '未设置'}</span>
                     </div>
                   </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-4">
+                    <MetricCard title="冻结状态" value={SOLUTION_FREEZE_STATUS_LABELS[activeFreezeApproval.status]} hint="proposal 阶段商业冻结流转" />
+                    <MetricCard title="申请版本" value={activeFreezeApproval.requestedSnapshotVersion ? `V${activeFreezeApproval.requestedSnapshotVersion}` : '尚未提交'} hint="审批基于该版本快照" />
+                    <MetricCard title="申请时间" value={activeFreezeApproval.requestedAt ? new Date(activeFreezeApproval.requestedAt).toLocaleString('zh-CN') : '尚未提交'} hint="最近一次提交审批时间" />
+                    <MetricCard title="审批结果" value={activeFreezeApproval.decidedAt ? `${SOLUTION_FREEZE_STATUS_LABELS[activeFreezeApproval.status]} · ${new Date(activeFreezeApproval.decidedAt).toLocaleString('zh-CN')}` : '待审批结果'} hint={activeFreezeApproval.decisionComment || '批准后 proposal 阶段可结束'} />
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => void handleRequestSolutionFreeze()}
+                      disabled={
+                        requestingSolutionFreeze
+                        || savingSolution
+                        || !solutionDraft
+                        || !activeGateValidation.canSnapshot
+                        || activeFreezeApproval.status === 'pending_approval'
+                      }
+                      className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-cyan-900/40"
+                    >
+                      {requestingSolutionFreeze ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
+                      提交冻结审批
+                    </button>
+                    <button
+                      onClick={() => void handleDecideSolutionFreeze('approve')}
+                      disabled={decidingSolutionFreeze || !isSolutionFreezePending || !isCurrentProposalApprover}
+                      className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 px-3 py-2 text-xs text-emerald-200 transition-colors hover:border-emerald-400/60 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {decidingSolutionFreeze ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      批准冻结
+                    </button>
+                    <button
+                      onClick={() => void handleDecideSolutionFreeze('reject')}
+                      disabled={decidingSolutionFreeze || !isSolutionFreezePending || !isCurrentProposalApprover}
+                      className="inline-flex items-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-200 transition-colors hover:border-rose-400/60 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {decidingSolutionFreeze ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      驳回冻结
+                    </button>
+                    {!proposalStage?.approverUserId ? (
+                      <span className="text-xs text-amber-300">先在 proposal 阶段填写审批人，才能提交冻结审批。</span>
+                    ) : null}
+                    {isSolutionFreezePending && proposalStage?.approverUserId && !isCurrentProposalApprover ? (
+                      <span className="text-xs text-slate-400">仅 proposal 审批人可执行批准或驳回。</span>
+                    ) : null}
+                  </div>
                 </div>
+
+                <fieldset disabled={isSolutionFreezePending} className="space-y-5 disabled:opacity-70">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-medium text-white">商业分支</h4>
+                        <p className="mt-1 text-xs text-slate-500">先确定当前方案走 EPC 还是 EMC，再补齐分支字段。</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {(['epc', 'emc'] as ProjectCommercialBranchType[]).map((branch) => (
+                          <button
+                            key={branch}
+                            type="button"
+                            onClick={() => handleSolutionBranchTypeChange(branch)}
+                            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                              solutionDraft.commercialBranching.branchType === branch
+                                ? 'bg-cyan-600 text-white'
+                                : 'border border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-500/50 hover:text-white'
+                            }`}
+                          >
+                            {COMMERCIAL_BRANCH_LABELS[branch]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>分支决策说明</span>
+                        <textarea
+                          value={solutionDraft.commercialBranching.branchDecisionNote}
+                          onChange={(event) => handleSolutionBranchNoteChange(event.target.value)}
+                          className="min-h-[88px] w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none"
+                          placeholder="记录为什么选 EPC 或 EMC，以及当前商务判断"
+                        />
+                      </label>
+                      <label className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 text-xs text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={solutionDraft.commercialBranching.freezeReady}
+                          onChange={(event) => handleSolutionFreezeReadyChange(event.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-700 bg-slate-950 text-cyan-500"
+                        />
+                        <span>
+                          当前商业分支字段已确认，可以进入快照冻结前校验。
+                        </span>
+                      </label>
+                    </div>
+
+                    {solutionDraft.commercialBranching.branchType === 'epc' ? (
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        <label className="space-y-2 text-xs text-slate-400">
+                          <span>设备投资额</span>
+                          <input value={solutionDraft.commercialBranching.epc.capexCny} onChange={(event) => handleSolutionEpcDraftChange('capexCny', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                        </label>
+                        <label className="space-y-2 text-xs text-slate-400">
+                          <span>目标毛利率</span>
+                          <input value={solutionDraft.commercialBranching.epc.grossMarginRate} onChange={(event) => handleSolutionEpcDraftChange('grossMarginRate', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                        </label>
+                        <label className="space-y-2 text-xs text-slate-400">
+                          <span>交付周期(月)</span>
+                          <input value={solutionDraft.commercialBranching.epc.deliveryMonths} onChange={(event) => handleSolutionEpcDraftChange('deliveryMonths', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                        </label>
+                      </div>
+                    ) : null}
+
+                    {solutionDraft.commercialBranching.branchType === 'emc' ? (
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        <label className="space-y-2 text-xs text-slate-400">
+                          <span>收益分成比例</span>
+                          <input value={solutionDraft.commercialBranching.emc.sharedSavingRate} onChange={(event) => handleSolutionEmcDraftChange('sharedSavingRate', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                        </label>
+                        <label className="space-y-2 text-xs text-slate-400">
+                          <span>合同年限</span>
+                          <input value={solutionDraft.commercialBranching.emc.contractYears} onChange={(event) => handleSolutionEmcDraftChange('contractYears', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                        </label>
+                        <label className="space-y-2 text-xs text-slate-400">
+                          <span>保底节能率</span>
+                          <input value={solutionDraft.commercialBranching.emc.guaranteedSavingRate} onChange={(event) => handleSolutionEmcDraftChange('guaranteedSavingRate', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                    <h4 className="text-sm font-medium text-white">技术假设</h4>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>基线负荷 RT</span>
+                        <input value={solutionDraft.technicalAssumptions.baselineLoadRt} onChange={(event) => handleSolutionDraftChange('baselineLoadRt', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>目标负荷 RT</span>
+                        <input value={solutionDraft.technicalAssumptions.targetLoadRt} onChange={(event) => handleSolutionDraftChange('targetLoadRt', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>年运行小时</span>
+                        <input value={solutionDraft.technicalAssumptions.operatingHoursPerYear} onChange={(event) => handleSolutionDraftChange('operatingHoursPerYear', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>电价 元/kWh</span>
+                        <input value={solutionDraft.technicalAssumptions.electricityPricePerKwh} onChange={(event) => handleSolutionDraftChange('electricityPricePerKwh', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>基线 COP</span>
+                        <input value={solutionDraft.technicalAssumptions.baselineCop} onChange={(event) => handleSolutionDraftChange('baselineCop', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>目标 COP</span>
+                        <input value={solutionDraft.technicalAssumptions.targetCop} onChange={(event) => handleSolutionDraftChange('targetCop', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>系统损耗系数</span>
+                        <input value={solutionDraft.technicalAssumptions.systemLossFactor} onChange={(event) => handleSolutionDraftChange('systemLossFactor', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 text-xs text-slate-400">
+                        <p>快照版本：V{solutionWorkspace.lastSnapshotVersion || 0}</p>
+                        <p className="mt-2">最近时间：{solutionWorkspace.lastSnapshotAt ? new Date(solutionWorkspace.lastSnapshotAt).toLocaleString('zh-CN') : '尚未创建'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </fieldset>
 
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <MetricCard title="基线年耗电" value={`${activeCalculationSummary.baselineAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} />

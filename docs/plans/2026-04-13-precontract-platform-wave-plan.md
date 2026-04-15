@@ -70,6 +70,7 @@ Next default execution target:
 Wave 3 Sprint 3.2 progress note:
 - solution workspace now supports EPC / EMC branch persistence, branch-aware snapshots, separated technical vs commercial gate feedback, and project dashboard branch visibility
 - commercial freeze readiness is now part of snapshot gate validation instead of being a passive checkbox
+- proposal-stage solution center now supports freeze approval request, audit-backed approval decisions, and stage-level `pending_approval` handoff for commercial freeze
 
 ---
 

@@ -45,11 +45,12 @@ Key environment variables:
 | `PORT` | yes | Runtime port from Railway/local shell |
 | `SUPABASE_URL` | yes | Supabase project URL for server-side admin client |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only admin key for authoritative writes |
-| `SUPABASE_JWT_SECRET` | yes | JWT secret used to verify Supabase access tokens |
+| `SUPABASE_JWT_SECRET` | no | Optional legacy JWT secret for local token verification; omit to let the API validate tokens through Supabase |
 
 Notes:
 
-- `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET` are server-only secrets.
+- `SUPABASE_SERVICE_ROLE_KEY` is required and server-only.
+- `SUPABASE_JWT_SECRET` is optional; when omitted, the API falls back to Supabase `auth.getUser()` verification.
 - `api` should be the only service that performs governed workflow writes.
 
 ## Detection

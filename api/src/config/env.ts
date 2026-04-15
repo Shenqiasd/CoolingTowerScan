@@ -3,7 +3,7 @@ export interface AppEnv {
   port: number;
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
-  supabaseJwtSecret: string;
+  supabaseJwtSecret: string | null;
 }
 
 function parsePort(rawPort: string | undefined): number {
@@ -37,6 +37,6 @@ export function loadEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
       env.SUPABASE_SERVICE_ROLE_KEY,
       'SUPABASE_SERVICE_ROLE_KEY',
     ),
-    supabaseJwtSecret: parseRequiredString(env.SUPABASE_JWT_SECRET, 'SUPABASE_JWT_SECRET'),
+    supabaseJwtSecret: env.SUPABASE_JWT_SECRET?.trim() || null,
   };
 }

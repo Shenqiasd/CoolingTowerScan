@@ -1,6 +1,6 @@
 import { jwtVerify } from 'jose';
 import fp from 'fastify-plugin';
-import type { preHandlerAsyncHookHandler } from 'fastify';
+import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
 
 import { AppError } from './errors.js';
 
@@ -42,22 +42,48 @@ function getBearerToken(header: string | undefined): string | null {
   return token.trim();
 }
 
-async function buildAuthContext(authorization: string | undefined, secret: string): Promise<AuthContext> {
+async function buildAuthContext(
+  authorization: string | undefined,
+  app: FastifyInstance,
+): Promise<AuthContext> {
   const token = getBearerToken(authorization);
   if (!token) {
     return { ...UNAUTHENTICATED_AUTH };
   }
 
+  const secret = app.appEnv.supabaseJwtSecret;
+  if (secret) {
+    try {
+      const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
+      const userId = typeof payload.sub === 'string' ? payload.sub : null;
+      if (!userId) {
+        throw new AppError(401, 'AUTH_INVALID_TOKEN', 'Invalid authentication token.');
+      }
+
+      return {
+        userId,
+        role: typeof payload.role === 'string' ? payload.role : 'authenticated',
+        isAuthenticated: true,
+        token,
+      };
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new AppError(401, 'AUTH_INVALID_TOKEN', 'Invalid authentication token.');
+    }
+  }
+
   try {
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
-    const userId = typeof payload.sub === 'string' ? payload.sub : null;
-    if (!userId) {
+    const { data, error } = await app.supabaseAdmin.auth.getUser(token);
+    if (error || !data.user?.id) {
       throw new AppError(401, 'AUTH_INVALID_TOKEN', 'Invalid authentication token.');
     }
 
     return {
-      userId,
-      role: typeof payload.role === 'string' ? payload.role : 'authenticated',
+      userId: data.user.id,
+      role: data.user.role ?? 'authenticated',
       isAuthenticated: true,
       token,
     };
@@ -82,7 +108,7 @@ export const authPlugin = fp(async (app) => {
   });
 
   app.addHook('onRequest', async (request) => {
-    request.auth = await buildAuthContext(request.headers.authorization, app.appEnv.supabaseJwtSecret);
+    request.auth = await buildAuthContext(request.headers.authorization, app);
   });
 
   app.decorate('requireAuth', async (request) => {

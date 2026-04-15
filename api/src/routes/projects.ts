@@ -8,6 +8,7 @@ import {
   PROJECT_EQUIPMENT_STATUSES,
   PROJECT_HANDOFF_STATUSES,
   PROJECT_PRIORITIES,
+  PROJECT_SOLUTION_FREEZE_DECISIONS,
   PROJECT_STAGE_CODES,
   PROJECT_STAGE_STATUSES,
   PROJECT_WORKFLOW_STATUSES,
@@ -497,6 +498,17 @@ function parseSolutionCommercialBranching(
   return result;
 }
 
+function parseSolutionFreezeDecision(value: unknown) {
+  if (
+    typeof value === 'string'
+    && PROJECT_SOLUTION_FREEZE_DECISIONS.includes(value as typeof PROJECT_SOLUTION_FREEZE_DECISIONS[number])
+  ) {
+    return value as typeof PROJECT_SOLUTION_FREEZE_DECISIONS[number];
+  }
+
+  throw new AppError(400, 'PROJECT_SOLUTION_FREEZE_DECISION_INVALID', 'Solution freeze decision is invalid.');
+}
+
 export function registerProjectRoutes(app: FastifyInstance) {
   const service = new ProjectService(app.projectRepo);
 
@@ -680,6 +692,31 @@ export function registerProjectRoutes(app: FastifyInstance) {
       const item = await service.createProjectSolutionSnapshot(
         params.projectId ?? '',
         request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.post('/v1/projects/:projectId/solution-freeze-request', async (request) => {
+      const params = request.params as { projectId?: string };
+      const item = await service.requestProjectSolutionFreeze(
+        params.projectId ?? '',
+        request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.post('/v1/projects/:projectId/solution-freeze-decision', async (request) => {
+      const params = request.params as { projectId?: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const item = await service.decideProjectSolutionFreeze(
+        params.projectId ?? '',
+        parseSolutionFreezeDecision(body.action),
+        request.auth.userId ?? '',
+        parseOptionalString(
+          body.comment,
+          'PROJECT_SOLUTION_FREEZE_COMMENT_INVALID',
+          'Solution freeze comment must be a string.',
+        ),
       );
       return { item };
     });

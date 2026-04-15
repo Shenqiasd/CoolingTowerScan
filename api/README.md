@@ -31,8 +31,10 @@ export HOST=0.0.0.0
 export PORT=3000
 export SUPABASE_URL=https://your-project.supabase.co
 export SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-export SUPABASE_JWT_SECRET=your-jwt-secret
+# optional: export SUPABASE_JWT_SECRET=your-jwt-secret
 ```
+
+`SUPABASE_JWT_SECRET` is only needed if you want the API to verify Supabase access tokens locally. If it is omitted, the API will validate bearer tokens through Supabase using the service role key.
 
 ## Development
 

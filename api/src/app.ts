@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
 
 import { loadEnv, type AppEnv } from './config/env.js';
 import { createCandidateRepo } from './modules/candidates/candidate.repo.js';
@@ -43,6 +44,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.decorate('appEnv', env);
   app.register(errorsPlugin);
   app.register(supabasePlugin);
+  app.register(cors, {
+    origin: true,
+    allowedHeaders: ['Accept', 'Content-Type', 'Authorization'],
+  });
   app.register(authPlugin);
   app.register(auditPlugin);
   registerHealthRoute(app);

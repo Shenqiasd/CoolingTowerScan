@@ -14,6 +14,8 @@ import type {
 import type {
   ProjectCommercialBranchType,
   ProjectSolutionCommercialBranching,
+  ProjectSolutionFreezeApproval,
+  ProjectSolutionFreezeDecision,
   ProjectSolutionEpcCommercial,
   ProjectSolutionEmcCommercial,
   ProjectSolutionSnapshot,
@@ -77,6 +79,8 @@ export type {
   EquipmentLedgerItem,
   HandoffItem,
   ProjectSolutionCalculationSummary,
+  ProjectSolutionFreezeApproval,
+  ProjectSolutionFreezeDecision,
   ProjectSolutionGateValidation,
   ProjectSolutionSnapshot,
   ProjectSolutionTechnicalAssumptions,
@@ -326,6 +330,24 @@ type RawSolutionCommercialBranching = {
   emc?: RawSolutionEmcCommercial;
 };
 
+type RawSolutionFreezeApproval = {
+  status?: ProjectSolutionFreezeApproval['status'];
+  requestedAt?: string | null;
+  requested_at?: string | null;
+  requestedBy?: string | null;
+  requested_by?: string | null;
+  requestedSnapshotVersion?: number | string | null;
+  requested_snapshot_version?: number | string | null;
+  requestedBranchType?: ProjectCommercialBranchType | null;
+  requested_branch_type?: ProjectCommercialBranchType | null;
+  decidedAt?: string | null;
+  decided_at?: string | null;
+  decidedBy?: string | null;
+  decided_by?: string | null;
+  decisionComment?: string;
+  decision_comment?: string;
+};
+
 type RawSolutionWorkspace = {
   projectId?: string;
   project_id?: string;
@@ -333,6 +355,8 @@ type RawSolutionWorkspace = {
   technical_assumptions?: RawSolutionTechnicalAssumptions;
   commercialBranching?: RawSolutionCommercialBranching;
   commercial_branching?: RawSolutionCommercialBranching;
+  commercialFreezeApproval?: RawSolutionFreezeApproval;
+  commercial_freeze_approval?: RawSolutionFreezeApproval;
   calculationSummary?: RawSolutionCalculationSummary;
   calculation_summary?: RawSolutionCalculationSummary;
   gateValidation?: RawSolutionGateValidation;
@@ -757,11 +781,31 @@ function mapSolutionCommercialBranching(
   };
 }
 
+function mapSolutionFreezeApproval(
+  raw: RawSolutionFreezeApproval | undefined,
+): ProjectSolutionFreezeApproval {
+  return {
+    status: (raw?.status ?? 'idle') as ProjectSolutionFreezeApproval['status'],
+    requestedAt: raw?.requestedAt ?? raw?.requested_at ?? null,
+    requestedBy: raw?.requestedBy ?? raw?.requested_by ?? null,
+    requestedSnapshotVersion: toNullableNumber(
+      raw?.requestedSnapshotVersion ?? raw?.requested_snapshot_version,
+    ),
+    requestedBranchType: (raw?.requestedBranchType ?? raw?.requested_branch_type ?? null) as ProjectCommercialBranchType | null,
+    decidedAt: raw?.decidedAt ?? raw?.decided_at ?? null,
+    decidedBy: raw?.decidedBy ?? raw?.decided_by ?? null,
+    decisionComment: raw?.decisionComment ?? raw?.decision_comment ?? '',
+  };
+}
+
 function mapSolutionWorkspace(raw: RawSolutionWorkspace): ProjectSolutionWorkspace {
   return {
     projectId: raw.projectId ?? raw.project_id ?? '',
     technicalAssumptions: mapSolutionTechnicalAssumptions(raw.technicalAssumptions ?? raw.technical_assumptions),
     commercialBranching: mapSolutionCommercialBranching(raw.commercialBranching ?? raw.commercial_branching),
+    commercialFreezeApproval: mapSolutionFreezeApproval(
+      raw.commercialFreezeApproval ?? raw.commercial_freeze_approval,
+    ),
     calculationSummary: mapSolutionCalculationSummary(raw.calculationSummary ?? raw.calculation_summary),
     gateValidation: {
       canSnapshot: Boolean((raw.gateValidation ?? raw.gate_validation)?.canSnapshot ?? (raw.gateValidation ?? raw.gate_validation)?.can_snapshot),
@@ -907,4 +951,32 @@ export async function createProjectSolutionSnapshot(projectId: string): Promise<
     },
   );
   return mapSolutionSnapshot(response.item);
+}
+
+export async function requestProjectSolutionFreeze(projectId: string): Promise<ProjectSolutionWorkspace> {
+  const response = await apiRequest<{ item: RawSolutionWorkspace }>(
+    `/v1/projects/${projectId}/solution-freeze-request`,
+    {
+      method: 'POST',
+    },
+  );
+  return mapSolutionWorkspace(response.item);
+}
+
+export async function decideProjectSolutionFreeze(
+  projectId: string,
+  action: ProjectSolutionFreezeDecision,
+  comment?: string,
+): Promise<ProjectSolutionWorkspace> {
+  const response = await apiRequest<{ item: RawSolutionWorkspace }>(
+    `/v1/projects/${projectId}/solution-freeze-decision`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        action,
+        comment,
+      }),
+    },
+  );
+  return mapSolutionWorkspace(response.item);
 }
