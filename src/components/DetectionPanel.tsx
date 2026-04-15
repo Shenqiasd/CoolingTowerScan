@@ -11,6 +11,8 @@ import { buildErrorDetection, buildScanDetection } from '../utils/detectionResul
 import { patchDetection } from '../utils/detectionState';
 import { getScreenshotIdentity, isDetectionForScreenshot } from '../utils/screenshotIdentity';
 import ScreenshotGrid from './detection/ScreenshotGrid';
+import CandidateSummaryCards from './detection/CandidateSummaryCards';
+import { buildCandidateReviewStats } from './detection/candidateReviewStats';
 import DetectionFilterBar from './detection/DetectionFilterBar';
 import FloatingActionBar from './detection/FloatingActionBar';
 import ReviewModal from './detection/ReviewModal';
@@ -311,6 +313,7 @@ export default function DetectionPanel({
     d => !d.hasCoolingTower && !d.error
   ).length;
   const totalTowers = detections.reduce((sum, d) => sum + d.count, 0);
+  const candidateStats = buildCandidateReviewStats(detections);
 
   // ── empty state ───────────────────────────────────────────────────────────
 
@@ -403,6 +406,8 @@ export default function DetectionPanel({
           </button>
         </div>
       )}
+
+      <CandidateSummaryCards stats={candidateStats} />
 
       {uploadNotice && (
         <div
