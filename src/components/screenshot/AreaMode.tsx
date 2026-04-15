@@ -3,6 +3,9 @@ import mapboxgl from 'mapbox-gl';
 import { Play, StopCircle, ChevronDown, ChevronUp, MousePointer2, Move } from 'lucide-react';
 import MapCanvas, { type MapCanvasHandle } from './MapCanvas';
 import { runCapture, buildAreaTasks, estimateTaskCount, type CaptureResult } from './CaptureEngine';
+import TaskLaunchSummary from './TaskLaunchSummary';
+import { buildTaskLaunchSummary } from './taskLaunchSummaryModel';
+import { listPrecisionPresets, resolvePrecisionPreset, type PrecisionPreset } from './PrecisionPreset';
 
 interface Props {
   token: string;
@@ -27,6 +30,7 @@ export default function AreaMode({ token, onComplete }: Props) {
   const [topLeftLat, setTopLeftLat] = useState(31.22);
   const [bottomRightLng, setBottomRightLng] = useState(121.52);
   const [bottomRightLat, setBottomRightLat] = useState(31.18);
+  const [precisionPreset, setPrecisionPreset] = useState<PrecisionPreset>('standard');
   const [zoomLevel, setZoomLevel] = useState(18);
   const [overlapPct, setOverlapPct] = useState(10);
   const [delayMs, setDelayMs] = useState(1500);
@@ -46,6 +50,12 @@ export default function AreaMode({ token, onComplete }: Props) {
   }, []);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
+
+  useEffect(() => {
+    const preset = resolvePrecisionPreset(precisionPreset);
+    setZoomLevel(preset.zoomLevel);
+    setOverlapPct(preset.overlapPct);
+  }, [precisionPreset]);
 
   const refreshOverlay = useCallback((tl: [number,number], br: [number,number], zoom: number, overlap: number) => {
     const map = mapRef.current;
@@ -130,6 +140,14 @@ export default function AreaMode({ token, onComplete }: Props) {
   }, [pickingMode, addLog]);
 
   const cursor = pickingMode === 'drag' ? 'crosshair' : pickingMode ? 'crosshair' : '';
+  const launchSummary = preview
+    ? buildTaskLaunchSummary({
+        taskName: label.trim() || '区域扫描任务',
+        preset: precisionPreset,
+        preview,
+        delayMs,
+      })
+    : null;
 
   const handleCapture = useCallback(async () => {
     const map = mapRef.current;
@@ -188,6 +206,29 @@ export default function AreaMode({ token, onComplete }: Props) {
 
           {/* Bounds inputs */}
           <div className="space-y-2">
+            <div className="text-xs text-slate-400 font-medium">扫描策略</div>
+            <div className="space-y-2">
+              {listPrecisionPresets().map((preset) => (
+                <button
+                  key={preset.value}
+                  onClick={() => setPrecisionPreset(preset.value)}
+                  className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                    precisionPreset === preset.value
+                      ? 'border-cyan-500/40 bg-cyan-500/10'
+                      : 'border-slate-700 bg-slate-800/60 hover:border-slate-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-white">{preset.label}</span>
+                    <span className="text-[11px] text-slate-400">Z{preset.zoomLevel} / {preset.overlapPct}%</span>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-400">{preset.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
             <div className="text-xs text-slate-400 font-medium">左上角</div>
             <div className="grid grid-cols-2 gap-1">
               {coordInput('经度', topLeftLng, setTopLeftLng)}
@@ -232,6 +273,8 @@ export default function AreaMode({ token, onComplete }: Props) {
               <div className="text-slate-500">{preview.rows} 行 × {preview.cols} 列</div>
             </div>
           )}
+
+          {launchSummary && <TaskLaunchSummary summary={launchSummary} />}
 
           {/* Label */}
           <input
