@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { StatsData } from '../types/enterprise';
+import { buildDiscoveryFunnelStats } from '../utils/enterpriseProvenance';
 
 export function useStats() {
   const [stats, setStats] = useState<StatsData>({
@@ -10,25 +11,37 @@ export function useStats() {
     mediumProbabilityCount: 0,
     lowProbabilityCount: 0,
     totalCoolingCapacityMW: 0,
+    totalScanTasks: 0,
+    pendingReviewCandidates: 0,
+    approvedCandidates: 0,
+    rejectedCandidates: 0,
+    needsBindingCandidates: 0,
   });
   const [loading, setLoading] = useState(true);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
 
-    const [totalRes, confirmedRes, highRes, mediumRes, lowRes, capacityRes] = await Promise.all([
+    const [totalRes, confirmedRes, highRes, mediumRes, lowRes, capacityRes, scanSessionRes, candidateRes] = await Promise.all([
       supabase.from('enterprises').select('*', { count: 'exact', head: true }),
       supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('has_cooling_tower', true),
       supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '高'),
       supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '中等'),
       supabase.from('enterprises').select('*', { count: 'exact', head: true }).eq('probability_level', '低'),
       supabase.from('enterprises').select('cooling_station_rated_power_mw').eq('has_cooling_tower', true),
+      supabase.from('scan_sessions').select('*', { count: 'exact', head: true }),
+      supabase.from('scan_candidates').select('status, enterprise_id'),
     ]);
 
     const totalMW = (capacityRes.data || []).reduce(
       (sum, e) => sum + (e.cooling_station_rated_power_mw || 0),
       0
     );
+
+    const discoveryFunnel = buildDiscoveryFunnelStats({
+      totalScanTasks: scanSessionRes.count || 0,
+      candidates: candidateRes.data || [],
+    });
 
     setStats({
       totalEnterprises: totalRes.count || 0,
@@ -37,6 +50,7 @@ export function useStats() {
       mediumProbabilityCount: mediumRes.count || 0,
       lowProbabilityCount: lowRes.count || 0,
       totalCoolingCapacityMW: Math.round(totalMW * 100) / 100,
+      ...discoveryFunnel,
     });
 
     setLoading(false);

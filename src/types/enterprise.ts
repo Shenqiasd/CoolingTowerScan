@@ -111,4 +111,9 @@ export interface StatsData {
   mediumProbabilityCount: number;
   lowProbabilityCount: number;
   totalCoolingCapacityMW: number;
+  totalScanTasks: number;
+  pendingReviewCandidates: number;
+  approvedCandidates: number;
+  rejectedCandidates: number;
+  needsBindingCandidates: number;
 }

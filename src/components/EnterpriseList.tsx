@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { AlertCircle, ChevronUp, ChevronDown, ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import type { Enterprise } from '../types/enterprise';
 import type { SortField, SortDirection } from '../hooks/useEnterprises';
+import { getEnterpriseSourceLabel } from '../utils/enterpriseProvenance';
 
 interface EnterpriseListProps {
   enterprises: Enterprise[];
@@ -263,6 +264,11 @@ export default function EnterpriseList({
                         enterprise.detection_status === 'no_result' ? 'text-slate-500' : 'text-white'
                       }`}>
                         {enterprise.enterprise_name}
+                      </span>
+                    </div>
+                    <div className="mt-1">
+                      <span className="inline-flex rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] text-slate-400">
+                        来源：{getEnterpriseSourceLabel(enterprise.match_dimension_details)}
                       </span>
                     </div>
                   </td>

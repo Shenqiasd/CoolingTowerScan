@@ -95,6 +95,37 @@ const KPI_CARDS = [
   },
 ];
 
+const FUNNEL_CARDS = [
+  {
+    label: '扫描任务',
+    getValue: (s: StatsData) => s.totalScanTasks,
+    desc: '区域截图与地址识别累计形成的扫描任务',
+    color: 'border-violet-500/40 bg-violet-500/5',
+    textColor: 'text-violet-300',
+  },
+  {
+    label: '待审核候选',
+    getValue: (s: StatsData) => s.pendingReviewCandidates,
+    desc: '区域识别后尚未人工确认的候选',
+    color: 'border-amber-500/40 bg-amber-500/5',
+    textColor: 'text-amber-300',
+  },
+  {
+    label: '已通过候选',
+    getValue: (s: StatsData) => s.approvedCandidates,
+    desc: '已审核通过，进入企业沉淀的候选',
+    color: 'border-emerald-500/40 bg-emerald-500/5',
+    textColor: 'text-emerald-300',
+  },
+  {
+    label: '待绑定企业',
+    getValue: (s: StatsData) => s.needsBindingCandidates,
+    desc: '已通过但尚未绑定企业档案的候选',
+    color: 'border-cyan-500/40 bg-cyan-500/5',
+    textColor: 'text-cyan-300',
+  },
+];
+
 export default function ReportOverview({ stats }: Props) {
   const probData = PROB_DATA(stats);
 
@@ -126,6 +157,18 @@ export default function ReportOverview({ stats }: Props) {
               )}
             </div>
             <p className="text-[10px] text-slate-500 leading-relaxed">{card.desc}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-4 gap-3">
+        {FUNNEL_CARDS.map((card) => (
+          <div key={card.label} className={`rounded-xl border p-4 ${card.color}`}>
+            <p className="text-[11px] text-slate-400 mb-2">{card.label}</p>
+            <p className={`text-2xl font-bold ${card.textColor} mb-0.5`}>
+              {card.getValue(stats).toLocaleString()}
+            </p>
+            <p className="mt-2 text-[10px] text-slate-500 leading-relaxed">{card.desc}</p>
           </div>
         ))}
       </div>

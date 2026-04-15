@@ -61,6 +61,33 @@ const kpis = [
     getValue: (s: StatsData) => s.totalCoolingCapacityMW.toFixed(2),
     unit: 'MW',
   },
+  {
+    key: 'scan-tasks',
+    label: '扫描任务',
+    icon: Radar,
+    color: 'text-violet-300',
+    bg: 'bg-violet-500/10',
+    getValue: (s: StatsData) => s.totalScanTasks.toLocaleString(),
+    unit: '个',
+  },
+  {
+    key: 'pending-review',
+    label: '待审核候选',
+    icon: ScanEye,
+    color: 'text-amber-300',
+    bg: 'bg-amber-500/10',
+    getValue: (s: StatsData) => s.pendingReviewCandidates.toLocaleString(),
+    unit: '个',
+  },
+  {
+    key: 'needs-binding',
+    label: '待绑定企业',
+    icon: Building2,
+    color: 'text-cyan-300',
+    bg: 'bg-cyan-500/10',
+    getValue: (s: StatsData) => s.needsBindingCandidates.toLocaleString(),
+    unit: '个',
+  },
 ];
 
 export default function Header({ stats, statsLoading }: HeaderProps) {

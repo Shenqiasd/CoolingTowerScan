@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
-import { X, Upload, Loader2, Image as ImageIcon, ThermometerSun, Building2, Gauge, Cpu, PlugZap, Save, Radar, Target, Maximize2, MapPin, Tag, Star, BarChart3 } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { X, Upload, Loader2, Image as ImageIcon, ThermometerSun, Building2, Gauge, Cpu, PlugZap, Save, Radar, Target, Maximize2, MapPin, Tag, Star, BarChart3, GitBranch } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { calculateHVAC } from '../utils/hvacCalculator';
 import { buildEnterpriseImageAsset } from '../utils/enterpriseImage';
+import { buildEnterpriseProvenance, type EnterpriseCandidateProvenance } from '../utils/enterpriseProvenance';
 import { warmImageSource } from '../utils/reviewImage';
 import type { Enterprise, DetectionResult } from '../types/enterprise';
 import ImageLightbox from './ImageLightbox';
@@ -34,6 +35,7 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
   const [saving, setSaving] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [previewSourceIndexes, setPreviewSourceIndexes] = useState<Record<string, number>>({});
+  const [provenanceCandidate, setProvenanceCandidate] = useState<EnterpriseCandidateProvenance | null>(null);
   const originalRef = useRef<HTMLInputElement>(null);
   const annotatedRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +67,44 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
   useEffect(() => {
     setPreviewSourceIndexes({});
   }, [enterprise.id, enterprise.original_image_url, enterprise.annotated_image_url]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function fetchCandidateProvenance() {
+      const { data, error } = await supabase
+        .from('scan_candidates')
+        .select('id, candidate_code, scan_session_id, source_label, source_payload, created_at')
+        .eq('enterprise_id', enterprise.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (disposed) {
+        return;
+      }
+
+      if (error) {
+        console.error('Fetch candidate provenance error:', error);
+        setProvenanceCandidate(null);
+        return;
+      }
+
+      setProvenanceCandidate(data ?? null);
+    }
+
+    void fetchCandidateProvenance();
+
+    return () => {
+      disposed = true;
+    };
+  }, [enterprise.id]);
+
+  const provenance = useMemo(() => buildEnterpriseProvenance({
+    enterprise,
+    candidate: provenanceCandidate,
+    detectionResults,
+  }), [enterprise, provenanceCandidate, detectionResults]);
 
   const getPreviewSrc = (image?: typeof satelliteImages[number]) => {
     if (!image) return '';
@@ -365,6 +405,39 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                     {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                     保存并计算
                   </button>
+                </div>
+              </div>
+
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700/40 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <GitBranch className="w-4 h-4 text-cyan-400" />
+                  <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">来源追踪</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs text-slate-500">来源模式</p>
+                    <p className="text-white">{provenance.sourceLabel}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">图片入库时间</p>
+                    <p className="text-white">{provenance.imageUploadedAt || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">扫描任务 ID</p>
+                    <p className="break-all font-mono text-xs text-slate-300">{provenance.scanSessionId || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">截图 ID</p>
+                    <p className="break-all font-mono text-xs text-slate-300">{provenance.screenshotId || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Candidate Code</p>
+                    <p className="break-all font-mono text-xs text-slate-300">{provenance.candidateCode || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">最新检测图片</p>
+                    <p className="break-all text-xs text-slate-300">{provenance.latestDetectionImagePath || '-'}</p>
+                  </div>
                 </div>
               </div>
             </div>
