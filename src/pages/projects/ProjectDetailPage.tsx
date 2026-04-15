@@ -42,6 +42,9 @@ import {
   createDefaultSolutionWorkspace,
   createSolutionWorkspaceDraft,
   serializeSolutionWorkspaceDraft,
+  type ProjectCommercialBranchType,
+  type ProjectSolutionEmcCommercialDraft,
+  type ProjectSolutionEpcCommercialDraft,
   type ProjectSolutionWorkspaceDraft,
   type ProjectSolutionTechnicalAssumptionsDraft,
 } from '../../utils/projectSolutionWorkspace';
@@ -81,6 +84,11 @@ const PRIORITY_LABELS: Record<ProjectPriority, string> = {
   high: '高',
   medium: '中',
   low: '低',
+};
+
+const COMMERCIAL_BRANCH_LABELS: Record<ProjectCommercialBranchType, string> = {
+  epc: 'EPC',
+  emc: 'EMC',
 };
 
 interface ProjectDraft {
@@ -528,6 +536,68 @@ export default function ProjectDetailPage() {
         technicalAssumptions: {
           ...prev.technicalAssumptions,
           [key]: value,
+        },
+      } : prev));
+    },
+    [],
+  );
+
+  const handleSolutionBranchTypeChange = useCallback((branchType: ProjectCommercialBranchType) => {
+    setSolutionDraft((prev) => (prev ? {
+      ...prev,
+      commercialBranching: {
+        ...prev.commercialBranching,
+        branchType,
+      },
+    } : prev));
+  }, []);
+
+  const handleSolutionBranchNoteChange = useCallback((value: string) => {
+    setSolutionDraft((prev) => (prev ? {
+      ...prev,
+      commercialBranching: {
+        ...prev.commercialBranching,
+        branchDecisionNote: value,
+      },
+    } : prev));
+  }, []);
+
+  const handleSolutionFreezeReadyChange = useCallback((checked: boolean) => {
+    setSolutionDraft((prev) => (prev ? {
+      ...prev,
+      commercialBranching: {
+        ...prev.commercialBranching,
+        freezeReady: checked,
+      },
+    } : prev));
+  }, []);
+
+  const handleSolutionEpcDraftChange = useCallback(
+    <K extends keyof ProjectSolutionEpcCommercialDraft>(key: K, value: ProjectSolutionEpcCommercialDraft[K]) => {
+      setSolutionDraft((prev) => (prev ? {
+        ...prev,
+        commercialBranching: {
+          ...prev.commercialBranching,
+          epc: {
+            ...prev.commercialBranching.epc,
+            [key]: value,
+          },
+        },
+      } : prev));
+    },
+    [],
+  );
+
+  const handleSolutionEmcDraftChange = useCallback(
+    <K extends keyof ProjectSolutionEmcCommercialDraft>(key: K, value: ProjectSolutionEmcCommercialDraft[K]) => {
+      setSolutionDraft((prev) => (prev ? {
+        ...prev,
+        commercialBranching: {
+          ...prev.commercialBranching,
+          emc: {
+            ...prev.commercialBranching.emc,
+            [key]: value,
+          },
         },
       } : prev));
     },
@@ -1146,6 +1216,87 @@ export default function ProjectDetailPage() {
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-medium text-white">商业分支</h4>
+                      <p className="mt-1 text-xs text-slate-500">先确定当前方案走 EPC 还是 EMC，再补齐分支字段。</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {(['epc', 'emc'] as ProjectCommercialBranchType[]).map((branch) => (
+                        <button
+                          key={branch}
+                          onClick={() => handleSolutionBranchTypeChange(branch)}
+                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                            solutionDraft.commercialBranching.branchType === branch
+                              ? 'bg-cyan-600 text-white'
+                              : 'border border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-500/50 hover:text-white'
+                          }`}
+                        >
+                          {COMMERCIAL_BRANCH_LABELS[branch]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <label className="space-y-2 text-xs text-slate-400">
+                      <span>分支决策说明</span>
+                      <textarea
+                        value={solutionDraft.commercialBranching.branchDecisionNote}
+                        onChange={(event) => handleSolutionBranchNoteChange(event.target.value)}
+                        className="min-h-[88px] w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none"
+                        placeholder="记录为什么选 EPC 或 EMC，以及当前商务判断"
+                      />
+                    </label>
+                    <label className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 text-xs text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={solutionDraft.commercialBranching.freezeReady}
+                        onChange={(event) => handleSolutionFreezeReadyChange(event.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-700 bg-slate-950 text-cyan-500"
+                      />
+                      <span>
+                        当前商业分支字段已确认，可以进入快照冻结前校验。
+                      </span>
+                    </label>
+                  </div>
+
+                  {solutionDraft.commercialBranching.branchType === 'epc' ? (
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>设备投资额</span>
+                        <input value={solutionDraft.commercialBranching.epc.capexCny} onChange={(event) => handleSolutionEpcDraftChange('capexCny', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>目标毛利率</span>
+                        <input value={solutionDraft.commercialBranching.epc.grossMarginRate} onChange={(event) => handleSolutionEpcDraftChange('grossMarginRate', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>交付周期(月)</span>
+                        <input value={solutionDraft.commercialBranching.epc.deliveryMonths} onChange={(event) => handleSolutionEpcDraftChange('deliveryMonths', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                    </div>
+                  ) : null}
+
+                  {solutionDraft.commercialBranching.branchType === 'emc' ? (
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>收益分成比例</span>
+                        <input value={solutionDraft.commercialBranching.emc.sharedSavingRate} onChange={(event) => handleSolutionEmcDraftChange('sharedSavingRate', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>合同年限</span>
+                        <input value={solutionDraft.commercialBranching.emc.contractYears} onChange={(event) => handleSolutionEmcDraftChange('contractYears', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                      <label className="space-y-2 text-xs text-slate-400">
+                        <span>保底节能率</span>
+                        <input value={solutionDraft.commercialBranching.emc.guaranteedSavingRate} onChange={(event) => handleSolutionEmcDraftChange('guaranteedSavingRate', event.target.value)} className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-cyan-500/50 focus:outline-none" />
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                   <h4 className="text-sm font-medium text-white">技术假设</h4>
                   <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <label className="space-y-2 text-xs text-slate-400">
@@ -1206,6 +1357,11 @@ export default function ProjectDetailPage() {
                           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                             <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300">V{snapshot.versionNo}</span>
                             <span>{snapshot.stageCode}</span>
+                            {typeof (snapshot.snapshotPayload as { commercialBranching?: { branchType?: string } }).commercialBranching?.branchType === 'string' ? (
+                              <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-300">
+                                {(snapshot.snapshotPayload as { commercialBranching?: { branchType?: string } }).commercialBranching?.branchType?.toUpperCase()}
+                              </span>
+                            ) : null}
                             <span>{new Date(snapshot.createdAt).toLocaleString('zh-CN')}</span>
                             <span>actor {snapshot.createdBy || 'unknown'}</span>
                           </div>

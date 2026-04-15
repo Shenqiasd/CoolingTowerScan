@@ -12,6 +12,10 @@ import type {
   SurveyRecordData,
 } from '../utils/projectSurveyWorkspace';
 import type {
+  ProjectCommercialBranchType,
+  ProjectSolutionCommercialBranching,
+  ProjectSolutionEpcCommercial,
+  ProjectSolutionEmcCommercial,
   ProjectSolutionSnapshot,
   ProjectSolutionWorkspace,
   ProjectSolutionWorkspacePayload,
@@ -278,11 +282,42 @@ type RawSolutionGateValidation = {
   errors?: unknown[];
 };
 
+type RawSolutionEpcCommercial = {
+  capexCny?: number | string | null;
+  capex_cny?: number | string | null;
+  grossMarginRate?: number | string | null;
+  gross_margin_rate?: number | string | null;
+  deliveryMonths?: number | string | null;
+  delivery_months?: number | string | null;
+};
+
+type RawSolutionEmcCommercial = {
+  sharedSavingRate?: number | string | null;
+  shared_saving_rate?: number | string | null;
+  contractYears?: number | string | null;
+  contract_years?: number | string | null;
+  guaranteedSavingRate?: number | string | null;
+  guaranteed_saving_rate?: number | string | null;
+};
+
+type RawSolutionCommercialBranching = {
+  branchType?: ProjectCommercialBranchType | null;
+  branch_type?: ProjectCommercialBranchType | null;
+  branchDecisionNote?: string;
+  branch_decision_note?: string;
+  freezeReady?: boolean;
+  freeze_ready?: boolean;
+  epc?: RawSolutionEpcCommercial;
+  emc?: RawSolutionEmcCommercial;
+};
+
 type RawSolutionWorkspace = {
   projectId?: string;
   project_id?: string;
   technicalAssumptions?: RawSolutionTechnicalAssumptions;
   technical_assumptions?: RawSolutionTechnicalAssumptions;
+  commercialBranching?: RawSolutionCommercialBranching;
+  commercial_branching?: RawSolutionCommercialBranching;
   calculationSummary?: RawSolutionCalculationSummary;
   calculation_summary?: RawSolutionCalculationSummary;
   gateValidation?: RawSolutionGateValidation;
@@ -400,6 +435,25 @@ function toNumber(value: unknown): number {
   }
 
   return 0;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
 }
 
 function toOptionalString(value: unknown): string {
@@ -653,10 +707,39 @@ function mapSolutionCalculationSummary(
   };
 }
 
+function mapSolutionEpcCommercial(raw: RawSolutionEpcCommercial | undefined): ProjectSolutionEpcCommercial {
+  return {
+    capexCny: toNullableNumber(raw?.capexCny ?? raw?.capex_cny),
+    grossMarginRate: toNullableNumber(raw?.grossMarginRate ?? raw?.gross_margin_rate),
+    deliveryMonths: toNullableNumber(raw?.deliveryMonths ?? raw?.delivery_months),
+  };
+}
+
+function mapSolutionEmcCommercial(raw: RawSolutionEmcCommercial | undefined): ProjectSolutionEmcCommercial {
+  return {
+    sharedSavingRate: toNullableNumber(raw?.sharedSavingRate ?? raw?.shared_saving_rate),
+    contractYears: toNullableNumber(raw?.contractYears ?? raw?.contract_years),
+    guaranteedSavingRate: toNullableNumber(raw?.guaranteedSavingRate ?? raw?.guaranteed_saving_rate),
+  };
+}
+
+function mapSolutionCommercialBranching(
+  raw: RawSolutionCommercialBranching | undefined,
+): ProjectSolutionCommercialBranching {
+  return {
+    branchType: (raw?.branchType ?? raw?.branch_type ?? null) as ProjectCommercialBranchType | null,
+    branchDecisionNote: raw?.branchDecisionNote ?? raw?.branch_decision_note ?? '',
+    freezeReady: Boolean(raw?.freezeReady ?? raw?.freeze_ready),
+    epc: mapSolutionEpcCommercial(raw?.epc),
+    emc: mapSolutionEmcCommercial(raw?.emc),
+  };
+}
+
 function mapSolutionWorkspace(raw: RawSolutionWorkspace): ProjectSolutionWorkspace {
   return {
     projectId: raw.projectId ?? raw.project_id ?? '',
     technicalAssumptions: mapSolutionTechnicalAssumptions(raw.technicalAssumptions ?? raw.technical_assumptions),
+    commercialBranching: mapSolutionCommercialBranching(raw.commercialBranching ?? raw.commercial_branching),
     calculationSummary: mapSolutionCalculationSummary(raw.calculationSummary ?? raw.calculation_summary),
     gateValidation: {
       canSnapshot: Boolean((raw.gateValidation ?? raw.gate_validation)?.canSnapshot ?? (raw.gateValidation ?? raw.gate_validation)?.can_snapshot),

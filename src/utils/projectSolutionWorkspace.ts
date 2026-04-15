@@ -8,6 +8,28 @@ export interface ProjectSolutionTechnicalAssumptions {
   systemLossFactor: number | null;
 }
 
+export type ProjectCommercialBranchType = 'epc' | 'emc';
+
+export interface ProjectSolutionEpcCommercial {
+  capexCny: number | null;
+  grossMarginRate: number | null;
+  deliveryMonths: number | null;
+}
+
+export interface ProjectSolutionEmcCommercial {
+  sharedSavingRate: number | null;
+  contractYears: number | null;
+  guaranteedSavingRate: number | null;
+}
+
+export interface ProjectSolutionCommercialBranching {
+  branchType: ProjectCommercialBranchType | null;
+  branchDecisionNote: string;
+  freezeReady: boolean;
+  epc: ProjectSolutionEpcCommercial;
+  emc: ProjectSolutionEmcCommercial;
+}
+
 export interface ProjectSolutionCalculationSummary {
   baselineAnnualEnergyKwh: number;
   targetAnnualEnergyKwh: number;
@@ -26,6 +48,7 @@ export interface ProjectSolutionGateValidation {
 export interface ProjectSolutionWorkspace {
   projectId: string;
   technicalAssumptions: ProjectSolutionTechnicalAssumptions;
+  commercialBranching: ProjectSolutionCommercialBranching;
   calculationSummary: ProjectSolutionCalculationSummary;
   gateValidation: ProjectSolutionGateValidation;
   lastSnapshotVersion: number;
@@ -54,9 +77,30 @@ export interface ProjectSolutionTechnicalAssumptionsDraft {
   systemLossFactor: string;
 }
 
+export interface ProjectSolutionEpcCommercialDraft {
+  capexCny: string;
+  grossMarginRate: string;
+  deliveryMonths: string;
+}
+
+export interface ProjectSolutionEmcCommercialDraft {
+  sharedSavingRate: string;
+  contractYears: string;
+  guaranteedSavingRate: string;
+}
+
+export interface ProjectSolutionCommercialBranchingDraft {
+  branchType: ProjectCommercialBranchType | null;
+  branchDecisionNote: string;
+  freezeReady: boolean;
+  epc: ProjectSolutionEpcCommercialDraft;
+  emc: ProjectSolutionEmcCommercialDraft;
+}
+
 export interface ProjectSolutionWorkspaceDraft {
   projectId: string;
   technicalAssumptions: ProjectSolutionTechnicalAssumptionsDraft;
+  commercialBranching: ProjectSolutionCommercialBranchingDraft;
   calculationSummary: ProjectSolutionCalculationSummary;
   gateValidation: ProjectSolutionGateValidation;
   lastSnapshotVersion: number;
@@ -65,6 +109,7 @@ export interface ProjectSolutionWorkspaceDraft {
 
 export interface ProjectSolutionWorkspacePayload {
   technicalAssumptions: ProjectSolutionTechnicalAssumptions;
+  commercialBranching: ProjectSolutionCommercialBranching;
 }
 
 function toDraftNumber(value: number | null) {
@@ -93,6 +138,24 @@ function zeroCalculationSummary(): ProjectSolutionCalculationSummary {
   };
 }
 
+function createDefaultCommercialBranching(): ProjectSolutionCommercialBranching {
+  return {
+    branchType: null,
+    branchDecisionNote: '',
+    freezeReady: false,
+    epc: {
+      capexCny: null,
+      grossMarginRate: null,
+      deliveryMonths: null,
+    },
+    emc: {
+      sharedSavingRate: null,
+      contractYears: null,
+      guaranteedSavingRate: null,
+    },
+  };
+}
+
 export function createDefaultSolutionWorkspace(projectId: string): ProjectSolutionWorkspace {
   return {
     projectId,
@@ -105,6 +168,7 @@ export function createDefaultSolutionWorkspace(projectId: string): ProjectSoluti
       targetCop: null,
       systemLossFactor: null,
     },
+    commercialBranching: createDefaultCommercialBranching(),
     calculationSummary: zeroCalculationSummary(),
     gateValidation: {
       canSnapshot: false,
@@ -129,6 +193,21 @@ export function createSolutionWorkspaceDraft(
       targetCop: toDraftNumber(workspace.technicalAssumptions.targetCop),
       systemLossFactor: toDraftNumber(workspace.technicalAssumptions.systemLossFactor),
     },
+    commercialBranching: {
+      branchType: workspace.commercialBranching.branchType,
+      branchDecisionNote: workspace.commercialBranching.branchDecisionNote,
+      freezeReady: workspace.commercialBranching.freezeReady,
+      epc: {
+        capexCny: toDraftNumber(workspace.commercialBranching.epc.capexCny),
+        grossMarginRate: toDraftNumber(workspace.commercialBranching.epc.grossMarginRate),
+        deliveryMonths: toDraftNumber(workspace.commercialBranching.epc.deliveryMonths),
+      },
+      emc: {
+        sharedSavingRate: toDraftNumber(workspace.commercialBranching.emc.sharedSavingRate),
+        contractYears: toDraftNumber(workspace.commercialBranching.emc.contractYears),
+        guaranteedSavingRate: toDraftNumber(workspace.commercialBranching.emc.guaranteedSavingRate),
+      },
+    },
     calculationSummary: workspace.calculationSummary,
     gateValidation: workspace.gateValidation,
     lastSnapshotVersion: workspace.lastSnapshotVersion,
@@ -148,6 +227,21 @@ export function serializeSolutionWorkspaceDraft(
       baselineCop: toNullableNumber(draft.technicalAssumptions.baselineCop),
       targetCop: toNullableNumber(draft.technicalAssumptions.targetCop),
       systemLossFactor: toNullableNumber(draft.technicalAssumptions.systemLossFactor),
+    },
+    commercialBranching: {
+      branchType: draft.commercialBranching.branchType,
+      branchDecisionNote: draft.commercialBranching.branchDecisionNote.trim(),
+      freezeReady: draft.commercialBranching.freezeReady,
+      epc: {
+        capexCny: toNullableNumber(draft.commercialBranching.epc.capexCny),
+        grossMarginRate: toNullableNumber(draft.commercialBranching.epc.grossMarginRate),
+        deliveryMonths: toNullableNumber(draft.commercialBranching.epc.deliveryMonths),
+      },
+      emc: {
+        sharedSavingRate: toNullableNumber(draft.commercialBranching.emc.sharedSavingRate),
+        contractYears: toNullableNumber(draft.commercialBranching.emc.contractYears),
+        guaranteedSavingRate: toNullableNumber(draft.commercialBranching.emc.guaranteedSavingRate),
+      },
     },
   };
 }

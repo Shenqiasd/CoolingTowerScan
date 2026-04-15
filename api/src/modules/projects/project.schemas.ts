@@ -250,6 +250,28 @@ export interface ProjectSolutionTechnicalAssumptions {
   systemLossFactor: number | null;
 }
 
+export type ProjectCommercialBranchType = 'epc' | 'emc';
+
+export interface ProjectSolutionEpcCommercial {
+  capexCny: number | null;
+  grossMarginRate: number | null;
+  deliveryMonths: number | null;
+}
+
+export interface ProjectSolutionEmcCommercial {
+  sharedSavingRate: number | null;
+  contractYears: number | null;
+  guaranteedSavingRate: number | null;
+}
+
+export interface ProjectSolutionCommercialBranching {
+  branchType: ProjectCommercialBranchType | null;
+  branchDecisionNote: string;
+  freezeReady: boolean;
+  epc: ProjectSolutionEpcCommercial;
+  emc: ProjectSolutionEmcCommercial;
+}
+
 export interface ProjectSolutionCalculationSummary {
   baselineAnnualEnergyKwh: number;
   targetAnnualEnergyKwh: number;
@@ -268,6 +290,7 @@ export interface ProjectSolutionGateValidation {
 export interface ProjectSolutionWorkspace {
   projectId: string;
   technicalAssumptions: ProjectSolutionTechnicalAssumptions;
+  commercialBranching: ProjectSolutionCommercialBranching;
   calculationSummary: ProjectSolutionCalculationSummary;
   gateValidation: ProjectSolutionGateValidation;
   lastSnapshotVersion: number;
@@ -276,6 +299,7 @@ export interface ProjectSolutionWorkspace {
 
 export interface UpdateProjectSolutionWorkspaceInput {
   technicalAssumptions?: Partial<ProjectSolutionTechnicalAssumptions>;
+  commercialBranching?: Partial<ProjectSolutionCommercialBranching>;
 }
 
 export interface ProjectSolutionSnapshot {

@@ -16,6 +16,11 @@ test('createSolutionWorkspaceDraft converts nullable assumptions into editable s
   workspace.technicalAssumptions.baselineCop = 4.2;
   workspace.technicalAssumptions.targetCop = 5.6;
   workspace.technicalAssumptions.systemLossFactor = 1.08;
+  workspace.commercialBranching.branchType = 'emc';
+  workspace.commercialBranching.branchDecisionNote = '节能收益共享';
+  workspace.commercialBranching.emc.sharedSavingRate = 0.35;
+  workspace.commercialBranching.emc.contractYears = 8;
+  workspace.commercialBranching.emc.guaranteedSavingRate = 0.12;
 
   const draft = createSolutionWorkspaceDraft(workspace);
 
@@ -27,6 +32,11 @@ test('createSolutionWorkspaceDraft converts nullable assumptions into editable s
   assert.equal(draft.technicalAssumptions.baselineCop, '4.2');
   assert.equal(draft.technicalAssumptions.targetCop, '5.6');
   assert.equal(draft.technicalAssumptions.systemLossFactor, '1.08');
+  assert.equal(draft.commercialBranching.branchType, 'emc');
+  assert.equal(draft.commercialBranching.branchDecisionNote, '节能收益共享');
+  assert.equal(draft.commercialBranching.emc.sharedSavingRate, '0.35');
+  assert.equal(draft.commercialBranching.emc.contractYears, '8');
+  assert.equal(draft.commercialBranching.emc.guaranteedSavingRate, '0.12');
   assert.equal(draft.lastSnapshotVersion, 0);
 });
 
@@ -41,6 +51,21 @@ test('serializeSolutionWorkspaceDraft trims text and converts numeric fields int
       baselineCop: ' 4.2 ',
       targetCop: ' 5.1 ',
       systemLossFactor: ' 1.08 ',
+    },
+    commercialBranching: {
+      branchType: 'epc',
+      branchDecisionNote: '先走 EPC 快速改造',
+      freezeReady: false,
+      epc: {
+        capexCny: ' 2600000 ',
+        grossMarginRate: ' 0.18 ',
+        deliveryMonths: ' 6 ',
+      },
+      emc: {
+        sharedSavingRate: '',
+        contractYears: '',
+        guaranteedSavingRate: '',
+      },
     },
     calculationSummary: {
       baselineAnnualEnergyKwh: 320000,
@@ -68,6 +93,21 @@ test('serializeSolutionWorkspaceDraft trims text and converts numeric fields int
       baselineCop: 4.2,
       targetCop: 5.1,
       systemLossFactor: 1.08,
+    },
+    commercialBranching: {
+      branchType: 'epc',
+      branchDecisionNote: '先走 EPC 快速改造',
+      freezeReady: false,
+      epc: {
+        capexCny: 2600000,
+        grossMarginRate: 0.18,
+        deliveryMonths: 6,
+      },
+      emc: {
+        sharedSavingRate: null,
+        contractYears: null,
+        guaranteedSavingRate: null,
+      },
     },
   });
 });

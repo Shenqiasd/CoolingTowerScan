@@ -18,6 +18,8 @@ import {
   type ProjectStageCode,
   type ProjectStageStatus,
   type ProjectSolutionTechnicalAssumptions,
+  type ProjectSolutionCommercialBranching,
+  type ProjectCommercialBranchType,
   type ProjectWorkflowStatus,
   type ProjectSurveyInfoCollection,
   type ProjectSurveyRecord,
@@ -423,6 +425,78 @@ function parseSolutionTechnicalAssumptions(value: unknown): Partial<ProjectSolut
   };
 }
 
+function parseOptionalCommercialBranchType(value: unknown): ProjectCommercialBranchType | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (value === 'epc' || value === 'emc') {
+    return value;
+  }
+  throw new AppError(400, 'PROJECT_SOLUTION_BRANCHING_INVALID', 'commercial branchType must be epc, emc, or null.');
+}
+
+function parseSolutionCommercialBranching(
+  value: unknown,
+): Partial<ProjectSolutionCommercialBranching> | undefined {
+  const object = parseOptionalObject(
+    value,
+    'PROJECT_SOLUTION_BRANCHING_INVALID',
+    'Solution commercial branching must be an object.',
+  );
+  if (!object) {
+    return undefined;
+  }
+
+  const result: Partial<ProjectSolutionCommercialBranching> = {
+    branchType: parseOptionalCommercialBranchType(object.branchType),
+  };
+
+  if (object.branchDecisionNote !== undefined) {
+    if (typeof object.branchDecisionNote !== 'string') {
+      throw new AppError(400, 'PROJECT_SOLUTION_BRANCHING_INVALID', 'branchDecisionNote must be a string.');
+    }
+    result.branchDecisionNote = object.branchDecisionNote;
+  }
+
+  if (object.freezeReady !== undefined) {
+    if (typeof object.freezeReady !== 'boolean') {
+      throw new AppError(400, 'PROJECT_SOLUTION_BRANCHING_INVALID', 'freezeReady must be a boolean.');
+    }
+    result.freezeReady = object.freezeReady;
+  }
+
+  const epc = parseOptionalObject(
+    object.epc,
+    'PROJECT_SOLUTION_BRANCHING_INVALID',
+    'epc commercial fields must be an object.',
+  );
+  if (epc) {
+    result.epc = {
+      capexCny: parseNullableNumber(epc.capexCny, 'PROJECT_SOLUTION_BRANCHING_INVALID', 'epc.capexCny must be a number or null.') ?? null,
+      grossMarginRate: parseNullableNumber(epc.grossMarginRate, 'PROJECT_SOLUTION_BRANCHING_INVALID', 'epc.grossMarginRate must be a number or null.') ?? null,
+      deliveryMonths: parseNullableNumber(epc.deliveryMonths, 'PROJECT_SOLUTION_BRANCHING_INVALID', 'epc.deliveryMonths must be a number or null.') ?? null,
+    };
+  }
+
+  const emc = parseOptionalObject(
+    object.emc,
+    'PROJECT_SOLUTION_BRANCHING_INVALID',
+    'emc commercial fields must be an object.',
+  );
+  if (emc) {
+    result.emc = {
+      sharedSavingRate: parseNullableNumber(emc.sharedSavingRate, 'PROJECT_SOLUTION_BRANCHING_INVALID', 'emc.sharedSavingRate must be a number or null.') ?? null,
+      contractYears: parseNullableNumber(emc.contractYears, 'PROJECT_SOLUTION_BRANCHING_INVALID', 'emc.contractYears must be a number or null.') ?? null,
+      guaranteedSavingRate: parseNullableNumber(emc.guaranteedSavingRate, 'PROJECT_SOLUTION_BRANCHING_INVALID', 'emc.guaranteedSavingRate must be a number or null.') ?? null,
+    };
+  }
+
+  return result;
+}
+
 export function registerProjectRoutes(app: FastifyInstance) {
   const service = new ProjectService(app.projectRepo);
 
@@ -588,6 +662,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
         params.projectId ?? '',
         {
           technicalAssumptions: parseSolutionTechnicalAssumptions(body.technicalAssumptions),
+          commercialBranching: parseSolutionCommercialBranching(body.commercialBranching),
         },
         request.auth.userId ?? '',
       );

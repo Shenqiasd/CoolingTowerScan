@@ -233,6 +233,21 @@ const PROJECT_SOLUTION_WORKSPACE: ProjectSolutionWorkspace = {
     targetCop: 5.6,
     systemLossFactor: 1.08,
   },
+  commercialBranching: {
+    branchType: 'epc',
+    branchDecisionNote: '先采用 EPC 总包交付',
+    freezeReady: false,
+    epc: {
+      capexCny: 2600000,
+      grossMarginRate: 0.18,
+      deliveryMonths: 6,
+    },
+    emc: {
+      sharedSavingRate: null,
+      contractYears: null,
+      guaranteedSavingRate: null,
+    },
+  },
   calculationSummary: {
     baselineAnnualEnergyKwh: 4558032,
     targetAnnualEnergyKwh: 2848770,
@@ -270,6 +285,21 @@ const INVALID_PROJECT_SOLUTION_WORKSPACE: ProjectSolutionWorkspace = {
     baselineCoolingPowerKw: 0,
     targetCoolingPowerKw: 0,
   },
+  commercialBranching: {
+    branchType: null,
+    branchDecisionNote: '',
+    freezeReady: false,
+    epc: {
+      capexCny: null,
+      grossMarginRate: null,
+      deliveryMonths: null,
+    },
+    emc: {
+      sharedSavingRate: null,
+      contractYears: null,
+      guaranteedSavingRate: null,
+    },
+  },
   gateValidation: {
     canSnapshot: false,
     errors: [
@@ -279,6 +309,7 @@ const INVALID_PROJECT_SOLUTION_WORKSPACE: ProjectSolutionWorkspace = {
       'targetLoadRt must be less than or equal to baselineLoadRt',
       'targetCop must be greater than baselineCop',
       'target annual energy must be lower than baseline annual energy',
+      'commercial branchType is required',
     ],
   },
 };
@@ -290,6 +321,7 @@ const PROJECT_SOLUTION_SNAPSHOT: ProjectSolutionSnapshot = {
   versionNo: 1,
   snapshotPayload: {
     technicalAssumptions: PROJECT_SOLUTION_WORKSPACE.technicalAssumptions,
+    commercialBranching: PROJECT_SOLUTION_WORKSPACE.commercialBranching,
   },
   calculationSummary: PROJECT_SOLUTION_WORKSPACE.calculationSummary,
   gateErrors: [],
@@ -815,6 +847,7 @@ describe('project routes', () => {
       },
       payload: {
         technicalAssumptions: PROJECT_SOLUTION_WORKSPACE.technicalAssumptions,
+        commercialBranching: PROJECT_SOLUTION_WORKSPACE.commercialBranching,
       },
     });
 
@@ -824,6 +857,7 @@ describe('project routes', () => {
         'project-1',
         {
           technicalAssumptions: PROJECT_SOLUTION_WORKSPACE.technicalAssumptions,
+          commercialBranching: PROJECT_SOLUTION_WORKSPACE.commercialBranching,
         },
         'pm-user-1',
       );

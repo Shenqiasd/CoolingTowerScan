@@ -16,6 +16,7 @@ import type {
   ProjectSurveyRecord,
   ProjectSurveyWorkspace,
   ProjectSolutionCalculationSummary,
+  ProjectSolutionCommercialBranching,
   ProjectSolutionSnapshot,
   ProjectSolutionTechnicalAssumptions,
   ProjectSolutionWorkspace,
@@ -298,6 +299,62 @@ function getSolutionTechnicalAssumptions(
   };
 }
 
+function getDefaultSolutionCommercialBranching(): ProjectSolutionCommercialBranching {
+  return {
+    branchType: null,
+    branchDecisionNote: '',
+    freezeReady: false,
+    epc: {
+      capexCny: null,
+      grossMarginRate: null,
+      deliveryMonths: null,
+    },
+    emc: {
+      sharedSavingRate: null,
+      contractYears: null,
+      guaranteedSavingRate: null,
+    },
+  };
+}
+
+function getSolutionCommercialBranching(
+  phaseData: Record<string, unknown> | null | undefined,
+): ProjectSolutionCommercialBranching {
+  const proposalPhase = getPhaseDataValue(phaseData, 'proposal');
+  const workspace = proposalPhase.solutionWorkspace;
+  const value = workspace && typeof workspace === 'object' && !Array.isArray(workspace)
+    ? workspace as Record<string, unknown>
+    : {};
+  const branching = value.commercialBranching;
+  const source = branching && typeof branching === 'object' && !Array.isArray(branching)
+    ? branching as Record<string, unknown>
+    : {};
+
+  const defaults = getDefaultSolutionCommercialBranching();
+
+  return {
+    branchType: source.branchType === 'epc' || source.branchType === 'emc'
+      ? source.branchType
+      : defaults.branchType,
+    branchDecisionNote: typeof source.branchDecisionNote === 'string'
+      ? source.branchDecisionNote
+      : defaults.branchDecisionNote,
+    freezeReady: typeof source.freezeReady === 'boolean'
+      ? source.freezeReady
+      : defaults.freezeReady,
+    epc: {
+      capexCny: getNullableNumber((source.epc as Record<string, unknown> | undefined)?.capexCny),
+      grossMarginRate: getNullableNumber((source.epc as Record<string, unknown> | undefined)?.grossMarginRate),
+      deliveryMonths: getNullableNumber((source.epc as Record<string, unknown> | undefined)?.deliveryMonths),
+    },
+    emc: {
+      sharedSavingRate: getNullableNumber((source.emc as Record<string, unknown> | undefined)?.sharedSavingRate),
+      contractYears: getNullableNumber((source.emc as Record<string, unknown> | undefined)?.contractYears),
+      guaranteedSavingRate: getNullableNumber((source.emc as Record<string, unknown> | undefined)?.guaranteedSavingRate),
+    },
+  };
+}
+
 function normalizeSolutionAssumptions(
   assumptions: ProjectSolutionTechnicalAssumptions,
 ) {
@@ -323,6 +380,39 @@ function getSolutionCalculationSummary(
     calculationSummary: result.savingsEstimate,
     gateErrors: result.errors,
   };
+}
+
+function getSolutionCommercialGateErrors(
+  branching: ProjectSolutionCommercialBranching,
+): string[] {
+  const errors: string[] = [];
+
+  if (!branching.branchType) {
+    errors.push('commercial branchType is required');
+    return errors;
+  }
+
+  if (branching.branchType === 'epc') {
+    if ((branching.epc.capexCny ?? 0) <= 0) {
+      errors.push('epc.capexCny must be greater than 0');
+    }
+    if ((branching.epc.grossMarginRate ?? 0) <= 0) {
+      errors.push('epc.grossMarginRate must be greater than 0');
+    }
+    if ((branching.epc.deliveryMonths ?? 0) <= 0) {
+      errors.push('epc.deliveryMonths must be greater than 0');
+    }
+    return errors;
+  }
+
+  if ((branching.emc.sharedSavingRate ?? 0) <= 0) {
+    errors.push('emc.sharedSavingRate must be greater than 0');
+  }
+  if ((branching.emc.contractYears ?? 0) <= 0) {
+    errors.push('emc.contractYears must be greater than 0');
+  }
+
+  return errors;
 }
 
 function mapEquipmentLedgerItem(row: EquipmentLedgerRow): ProjectEquipmentLedgerItem {
@@ -756,12 +846,16 @@ async function getProjectSolutionWorkspace(
   }
 
   const assumptions = getSolutionTechnicalAssumptions(project.phase_data);
-  const { calculationSummary, gateErrors } = getSolutionCalculationSummary(assumptions);
+  const commercialBranching = getSolutionCommercialBranching(project.phase_data);
+  const { calculationSummary, gateErrors: technicalGateErrors } = getSolutionCalculationSummary(assumptions);
+  const commercialGateErrors = getSolutionCommercialGateErrors(commercialBranching);
+  const gateErrors = [...technicalGateErrors, ...commercialGateErrors];
   const latestSnapshot = await getLatestSolutionSnapshot(supabaseAdmin, projectId);
 
   return {
     projectId,
     technicalAssumptions: assumptions,
+    commercialBranching,
     calculationSummary,
     gateValidation: {
       canSnapshot: gateErrors.length === 0,
@@ -1314,10 +1408,28 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
       }
 
       const currentProposalPhase = getPhaseDataValue(existing.phase_data, 'proposal');
+      const currentWorkspace = currentProposalPhase.solutionWorkspace
+        && typeof currentProposalPhase.solutionWorkspace === 'object'
+        && !Array.isArray(currentProposalPhase.solutionWorkspace)
+        ? currentProposalPhase.solutionWorkspace as Record<string, unknown>
+        : {};
       const currentAssumptions = getSolutionTechnicalAssumptions(existing.phase_data);
+      const currentCommercialBranching = getSolutionCommercialBranching(existing.phase_data);
       const nextAssumptions = {
         ...currentAssumptions,
         ...(input.technicalAssumptions ?? {}),
+      };
+      const nextCommercialBranching = {
+        ...currentCommercialBranching,
+        ...(input.commercialBranching ?? {}),
+        epc: {
+          ...currentCommercialBranching.epc,
+          ...(input.commercialBranching?.epc ?? {}),
+        },
+        emc: {
+          ...currentCommercialBranching.emc,
+          ...(input.commercialBranching?.emc ?? {}),
+        },
       };
 
       const { error } = await supabaseAdmin
@@ -1328,7 +1440,9 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
             proposal: {
               ...currentProposalPhase,
               solutionWorkspace: {
+                ...currentWorkspace,
                 technicalAssumptions: nextAssumptions,
+                commercialBranching: nextCommercialBranching,
               },
             },
           },
@@ -1373,6 +1487,7 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
           version_no: nextVersion,
           snapshot_payload: {
             technicalAssumptions: workspace.technicalAssumptions,
+            commercialBranching: workspace.commercialBranching,
           },
           calculation_summary: workspace.calculationSummary,
           gate_errors: workspace.gateValidation.errors,
@@ -1396,6 +1511,7 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
               ...currentProposalPhase,
               solutionWorkspace: {
                 technicalAssumptions: workspace.technicalAssumptions,
+                commercialBranching: workspace.commercialBranching,
                 lastSnapshotVersion: nextVersion,
                 lastSnapshotAt: timestamp,
               },
