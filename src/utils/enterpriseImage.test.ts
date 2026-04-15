@@ -21,6 +21,14 @@ test('buildEnterpriseImageAsset derives a lightweight preview for Supabase publi
   assert.ok(!asset?.previewUrl.includes('format='));
   assert.ok(asset?.lightboxUrl.includes('width=1600'));
   assert.ok(asset?.lightboxUrl.includes('quality=75'));
+  assert.deepEqual(asset.previewCandidates, [
+    asset.previewUrl,
+    asset.fullUrl,
+  ]);
+  assert.deepEqual(asset.lightboxCandidates, [
+    asset.lightboxUrl,
+    asset.fullUrl,
+  ]);
 });
 
 test('buildEnterpriseImageAsset keeps non-Supabase URLs unchanged', () => {
@@ -30,6 +38,8 @@ test('buildEnterpriseImageAsset keeps non-Supabase URLs unchanged', () => {
     fullUrl: 'https://example.com/raw-image.png',
     previewUrl: 'https://example.com/raw-image.png',
     lightboxUrl: 'https://example.com/raw-image.png',
+    previewCandidates: ['https://example.com/raw-image.png'],
+    lightboxCandidates: ['https://example.com/raw-image.png'],
   });
 });
 

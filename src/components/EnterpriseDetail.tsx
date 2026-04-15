@@ -33,6 +33,7 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
   const [towerCount, setTowerCount] = useState(enterprise.cooling_tower_count);
   const [saving, setSaving] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [previewSourceIndexes, setPreviewSourceIndexes] = useState<Record<string, number>>({});
   const originalRef = useRef<HTMLInputElement>(null);
   const annotatedRef = useRef<HTMLInputElement>(null);
 
@@ -51,7 +52,39 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
     enterprise.annotated_image_url
       ? { ...buildEnterpriseImageAsset(enterprise.annotated_image_url), url: enterprise.annotated_image_url, label: '识别标注图' }
       : null,
-  ].filter(Boolean) as { fullUrl: string; url: string; label: string; previewUrl: string; lightboxUrl: string }[];
+  ].filter(Boolean) as {
+    fullUrl: string;
+    url: string;
+    label: string;
+    previewUrl: string;
+    lightboxUrl: string;
+    previewCandidates: string[];
+    lightboxCandidates: string[];
+  }[];
+
+  useEffect(() => {
+    setPreviewSourceIndexes({});
+  }, [enterprise.id, enterprise.original_image_url, enterprise.annotated_image_url]);
+
+  const getPreviewSrc = (image?: typeof satelliteImages[number]) => {
+    if (!image) return '';
+    const index = previewSourceIndexes[image.fullUrl] ?? 0;
+    return image.previewCandidates[Math.min(index, image.previewCandidates.length - 1)] || image.fullUrl;
+  };
+
+  const advancePreviewSrc = (image?: typeof satelliteImages[number]) => {
+    if (!image) return;
+    setPreviewSourceIndexes((prev) => {
+      const currentIndex = prev[image.fullUrl] ?? 0;
+      if (currentIndex >= image.previewCandidates.length - 1) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [image.fullUrl]: currentIndex + 1,
+      };
+    });
+  };
 
   const openLightbox = (index: number) => {
     warmImageSource(satelliteImages[index]?.lightboxUrl);
@@ -205,20 +238,24 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                   <div className="space-y-1.5">
                     <p className="text-[11px] text-slate-500">原始卫星图</p>
                     {enterprise.original_image_url ? (
+                      (() => {
+                        const image = satelliteImages.find((entry) => entry.fullUrl === enterprise.original_image_url);
+                        return (
                       <div
                         className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
                           border border-slate-700/40 hover:border-cyan-500/50 transition-all"
-                        onMouseEnter={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.original_image_url)?.previewUrl)}
-                        onFocus={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.original_image_url)?.previewUrl)}
-                        onPointerDown={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.original_image_url)?.lightboxUrl)}
+                        onMouseEnter={() => warmImageSource(getPreviewSrc(image))}
+                        onFocus={() => warmImageSource(getPreviewSrc(image))}
+                        onPointerDown={() => warmImageSource(image?.lightboxCandidates[0] || image?.fullUrl)}
                         onClick={() => openLightbox(0)}
                       >
                         <img
-                          src={satelliteImages.find((image) => image.fullUrl === enterprise.original_image_url)?.previewUrl || enterprise.original_image_url}
+                          src={getPreviewSrc(image)}
                           alt="原始图"
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                           loading="lazy"
                           decoding="async"
+                          onError={() => advancePreviewSrc(image)}
                         />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
                           flex items-center justify-center">
@@ -226,6 +263,8 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                             transition-opacity drop-shadow-lg" />
                         </div>
                       </div>
+                        );
+                      })()
                     ) : (
                       <button
                         onClick={() => originalRef.current?.click()}
@@ -250,6 +289,9 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                   <div className="space-y-1.5">
                     <p className="text-[11px] text-slate-500">识别标注图</p>
                     {enterprise.annotated_image_url ? (
+                      (() => {
+                        const image = satelliteImages.find((entry) => entry.fullUrl === enterprise.annotated_image_url);
+                        return (
                       <div
                         className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
                           border border-slate-700/40 hover:border-emerald-500/50 transition-all"
@@ -257,16 +299,17 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                           const idx = satelliteImages.findIndex((image) => image.fullUrl === enterprise.annotated_image_url);
                           openLightbox(Math.max(0, idx));
                         }}
-                        onMouseEnter={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.annotated_image_url)?.previewUrl)}
-                        onFocus={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.annotated_image_url)?.previewUrl)}
-                        onPointerDown={() => warmImageSource(satelliteImages.find((image) => image.fullUrl === enterprise.annotated_image_url)?.lightboxUrl)}
+                        onMouseEnter={() => warmImageSource(getPreviewSrc(image))}
+                        onFocus={() => warmImageSource(getPreviewSrc(image))}
+                        onPointerDown={() => warmImageSource(image?.lightboxCandidates[0] || image?.fullUrl)}
                       >
                         <img
-                          src={satelliteImages.find((image) => image.fullUrl === enterprise.annotated_image_url)?.previewUrl || enterprise.annotated_image_url}
+                          src={getPreviewSrc(image)}
                           alt="标注图"
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                           loading="lazy"
                           decoding="async"
+                          onError={() => advancePreviewSrc(image)}
                         />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
                           flex items-center justify-center">
@@ -274,6 +317,8 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                             transition-opacity drop-shadow-lg" />
                         </div>
                       </div>
+                        );
+                      })()
                     ) : (
                       <button
                         onClick={() => annotatedRef.current?.click()}

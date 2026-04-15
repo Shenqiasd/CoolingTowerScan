@@ -4,6 +4,8 @@ export interface EnterpriseImageAsset {
   fullUrl: string;
   previewUrl: string;
   lightboxUrl: string;
+  previewCandidates: string[];
+  lightboxCandidates: string[];
 }
 
 export interface EnterpriseImagePreviewOptions {
@@ -87,10 +89,18 @@ export function buildEnterpriseImageAsset(
   url: string,
   bucket = SCREENSHOT_STORAGE_BUCKET,
 ): EnterpriseImageAsset {
+  const previewUrl = buildEnterpriseImagePreviewUrl(url, { bucket });
+  const lightboxUrl = buildEnterpriseImagePreviewUrl(url, { ...DEFAULT_LIGHTBOX_OPTIONS, bucket });
+
+  const previewCandidates = previewUrl === url ? [url] : [previewUrl, url];
+  const lightboxCandidates = lightboxUrl === url ? [url] : [lightboxUrl, url];
+
   return {
     fullUrl: url,
-    previewUrl: buildEnterpriseImagePreviewUrl(url, { bucket }),
-    lightboxUrl: buildEnterpriseImagePreviewUrl(url, { ...DEFAULT_LIGHTBOX_OPTIONS, bucket }),
+    previewUrl,
+    lightboxUrl,
+    previewCandidates,
+    lightboxCandidates,
   };
 }
 
