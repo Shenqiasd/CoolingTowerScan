@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { supabase } from '../lib/supabase';
 import { INITIAL_SCAN_SESSION, type ScanSession } from '../types/pipeline';
@@ -14,6 +14,7 @@ import {
   type PersistedDetectionRow,
   type PersistedScreenshotRow,
 } from '../utils/scanSessionPersistence';
+import { shouldRunRestore } from './activeScanTaskRestorePolicy';
 
 export const ACTIVE_SCAN_SESSION_KEY = 'active_scan_session_id';
 
@@ -110,9 +111,10 @@ export function useActiveScanTask() {
   const [session, setSession] = useState<ScanSession>(INITIAL_SCAN_SESSION);
   const [loading, setLoading] = useState(true);
   const [recentTasks, setRecentTasks] = useState<RecentScanTaskSummary[]>([]);
+  const hasAutoRestoredRef = useRef(false);
 
   const refreshRecentTasks = useCallback(async (activeSessionId?: string | null) => {
-    const currentActiveId = activeSessionId ?? session.sessionId ?? null;
+    const currentActiveId = activeSessionId ?? null;
     const { data, error } = await supabase
       .from('scan_sessions')
       .select('id, mode, label, zoom_level, total_count, created_at')
@@ -128,10 +130,21 @@ export function useActiveScanTask() {
       row,
       activeSessionId: currentActiveId,
     })));
-  }, [session.sessionId]);
+  }, []);
 
   const restore = useCallback(async (sessionId?: string | null) => {
+    if (!shouldRunRestore({
+      hasAutoRestored: hasAutoRestoredRef.current,
+      explicitSessionId: sessionId,
+    })) {
+      return null;
+    }
+
     const targetSessionId = sessionId ?? localStorage.getItem(ACTIVE_SCAN_SESSION_KEY);
+    if (!sessionId) {
+      hasAutoRestoredRef.current = true;
+    }
+
     if (!targetSessionId) {
       setSession(INITIAL_SCAN_SESSION);
       await refreshRecentTasks(null);
