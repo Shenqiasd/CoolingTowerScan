@@ -41,6 +41,10 @@ import {
   getInitialTaskBannerCollapsed,
   TASK_BANNER_PREFERENCE_KEY,
 } from '../../components/discovery/taskBannerPreference';
+import {
+  getInitialRecentTaskListCollapsed,
+  RECENT_TASK_LIST_PREFERENCE_KEY,
+} from '../../components/discovery/recentTaskListPreference';
 
 const MapView = lazy(() => import('../../components/MapView'));
 
@@ -99,6 +103,14 @@ function readTaskBannerPreference(): string | null {
   return window.localStorage.getItem(TASK_BANNER_PREFERENCE_KEY);
 }
 
+function readRecentTaskListPreference(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  return window.localStorage.getItem(RECENT_TASK_LIST_PREFERENCE_KEY);
+}
+
 export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -145,6 +157,10 @@ export default function AppShell() {
   const [isTaskBannerCollapsed, setIsTaskBannerCollapsed] = useState(() => getInitialTaskBannerCollapsed(
     activeStep,
     readTaskBannerPreference(),
+  ));
+  const [isRecentTaskListCollapsed, setIsRecentTaskListCollapsed] = useState(() => getInitialRecentTaskListCollapsed(
+    activeStep,
+    readRecentTaskListPreference(),
   ));
 
   const enterpriseFileRef = useRef<HTMLInputElement>(null);
@@ -268,12 +284,24 @@ export default function AppShell() {
       activeStep,
       readTaskBannerPreference(),
     ));
+    setIsRecentTaskListCollapsed(getInitialRecentTaskListCollapsed(
+      activeStep,
+      readRecentTaskListPreference(),
+    ));
   }, [activeStep]);
 
   const handleTaskBannerToggle = useCallback(() => {
     setIsTaskBannerCollapsed((prev) => {
       const next = !prev;
       window.localStorage.setItem(TASK_BANNER_PREFERENCE_KEY, next ? 'collapsed' : 'expanded');
+      return next;
+    });
+  }, []);
+
+  const handleRecentTaskListToggle = useCallback(() => {
+    setIsRecentTaskListCollapsed((prev) => {
+      const next = !prev;
+      window.localStorage.setItem(RECENT_TASK_LIST_PREFERENCE_KEY, next ? 'collapsed' : 'expanded');
       return next;
     });
   }, []);
@@ -364,6 +392,8 @@ export default function AppShell() {
                   <div className="flex-1 flex flex-col overflow-hidden">
                     <RecentTaskList
                       tasks={recentTasks}
+                      collapsed={isRecentTaskListCollapsed}
+                      onToggleCollapse={handleRecentTaskListToggle}
                       onSelect={(taskId) => {
                         void selectTask(taskId).then((restored) => {
                           if (restored?.task) {

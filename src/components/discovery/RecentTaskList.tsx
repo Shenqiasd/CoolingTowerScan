@@ -1,22 +1,60 @@
-import { ChevronRight, Clock3 } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Clock3 } from 'lucide-react';
 
 import type { RecentScanTaskSummary } from '../../hooks/activeScanTaskModel';
 
 interface Props {
   tasks: RecentScanTaskSummary[];
   onSelect: (taskId: string) => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export default function RecentTaskList({ tasks, onSelect }: Props) {
+export default function RecentTaskList({ tasks, onSelect, collapsed = false, onToggleCollapse }: Props) {
   if (tasks.length === 0) {
     return null;
   }
 
+  if (collapsed) {
+    return (
+      <div className="border-b border-slate-800 bg-slate-950/80 px-4 py-2">
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Recent Tasks</div>
+            <div className="mt-1 text-sm font-medium text-white">最近扫描任务</div>
+          </div>
+          <div className="text-xs text-slate-400">{tasks.length} 个任务</div>
+          {onToggleCollapse && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-white transition-colors hover:border-slate-600 hover:bg-slate-800"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+              展开
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="border-b border-slate-800 bg-slate-950/80 px-4 py-3">
-      <div className="mb-3">
-        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Recent Tasks</div>
-        <div className="mt-1 text-sm font-medium text-white">最近扫描任务</div>
+      <div className="mb-3 flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Recent Tasks</div>
+          <div className="mt-1 text-sm font-medium text-white">最近扫描任务</div>
+        </div>
+        {onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-white transition-colors hover:border-slate-600 hover:bg-slate-800"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+            收起
+          </button>
+        )}
       </div>
       <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
         {tasks.map((task) => (
