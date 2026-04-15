@@ -1,4 +1,6 @@
 import type { CaptureResult } from '../components/screenshot/CaptureEngine';
+import type { ScanCandidateStatus } from './scanCandidate';
+import type { ScanTask } from './scanTask';
 
 export type { CaptureResult };
 // Backward compat alias
@@ -33,6 +35,8 @@ export interface ScanDetection {
   annotatedUrl?: string | null; // annotated image URL (bbox drawn)
   uploadStatus?: 'idle' | 'uploading' | 'done' | 'failed';
   reviewStatus?: 'pending' | 'confirmed' | 'rejected';
+  candidateId?: string | null;
+  candidateStatus?: ScanCandidateStatus | null;
   matchedEnterpriseId?: string | null;
   error?: string;
   detections: BboxDetection[];
@@ -49,6 +53,7 @@ export interface DetectionFilters {
 
 export interface ScanSession {
   sessionId: string | null;
+  task?: ScanTask | null;
   screenshots: CaptureResult[];
   detections: ScanDetection[];
   status: 'idle' | 'screenshotting' | 'detecting' | 'complete';
@@ -56,6 +61,7 @@ export interface ScanSession {
 
 export const INITIAL_SCAN_SESSION: ScanSession = {
   sessionId: null,
+  task: null,
   screenshots: [],
   detections: [],
   status: 'idle',

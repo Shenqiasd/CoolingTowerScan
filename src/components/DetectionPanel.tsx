@@ -282,7 +282,10 @@ export default function DetectionPanel({
   }, [detections]);
 
   const handleReview = useCallback((detection: ScanDetection, status: 'confirmed' | 'rejected') => {
-    updateDetection(detection, { reviewStatus: status });
+    updateDetection(detection, {
+      reviewStatus: status,
+      candidateStatus: status === 'confirmed' ? 'approved' : 'rejected',
+    });
   }, [updateDetection]);
 
   const handleLinkEnterprise = useCallback((detection: ScanDetection) => {

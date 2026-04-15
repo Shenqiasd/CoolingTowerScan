@@ -50,4 +50,7 @@ test('applyScreenshotsReady clears stale detections from previous runs', () => {
   assert.deepEqual(next.detections, []);
   assert.equal(next.sessionId, 'session-new');
   assert.equal(next.status, 'screenshotting');
+  assert.equal(next.task?.status, 'capturing');
+  assert.equal(next.task?.mode, 'address');
+  assert.equal(next.task?.screenshotCount, 1);
 });

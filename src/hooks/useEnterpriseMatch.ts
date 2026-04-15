@@ -28,6 +28,7 @@ export function useEnterpriseMatch() {
     onUpdate(detection, {
       enterpriseId,
       matchedEnterpriseId: enterpriseId,
+      candidateStatus: 'approved',
     });
   }, []);
 

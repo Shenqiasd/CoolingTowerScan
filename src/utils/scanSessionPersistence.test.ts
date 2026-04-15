@@ -28,6 +28,13 @@ test('buildRestoredScanSession rebuilds screenshots and detections from persiste
         review_status: 'confirmed',
       },
     ],
+    candidateRows: [
+      {
+        id: 'cand-1',
+        screenshot_id: 'shot-1',
+        status: 'approved',
+      },
+    ],
     detectionRows: [
       {
         screenshot_id: 'shot-1',
@@ -52,6 +59,8 @@ test('buildRestoredScanSession rebuilds screenshots and detections from persiste
 
   assert.equal(restored.sessionId, 'session-1');
   assert.equal(restored.status, 'complete');
+  assert.equal(restored.task?.status, 'completed');
+  assert.equal(restored.task?.mode, 'address');
   assert.equal(restored.screenshots.length, 1);
   assert.equal(restored.screenshots[0]?.sessionId, 'session-1');
   assert.equal(restored.screenshots[0]?.dataUrl, null);
@@ -65,6 +74,8 @@ test('buildRestoredScanSession rebuilds screenshots and detections from persiste
   assert.equal(restored.detections[0]?.confidence, 0.78);
   assert.equal(restored.detections[0]?.annotatedUrl, 'https://example.com/annotated.png');
   assert.equal(restored.detections[0]?.reviewStatus, 'confirmed');
+  assert.equal(restored.detections[0]?.candidateId, 'cand-1');
+  assert.equal(restored.detections[0]?.candidateStatus, 'approved');
   assert.equal(restored.detections[0]?.resolvedAddress, '上海市浦东新区测试路 1 号');
   assert.equal(restored.detections[0]?.detections.length, 2);
 });
@@ -94,10 +105,12 @@ test('buildRestoredScanSession keeps screenshot-only rows pending until detectio
         review_status: 'pending',
       },
     ],
+    candidateRows: [],
     detectionRows: [],
   });
 
   assert.equal(restored.status, 'screenshotting');
+  assert.equal(restored.task?.status, 'capturing');
   assert.equal(restored.detections.length, 0);
   assert.equal(restored.screenshots[0]?.source, 'area');
 });

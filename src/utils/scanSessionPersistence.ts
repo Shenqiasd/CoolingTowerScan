@@ -1,4 +1,6 @@
 import type { CaptureResult, ScanDetection, ScanSession } from '../types/pipeline.ts';
+import type { ScanCandidateStatus } from '../types/scanCandidate.ts';
+import type { ScanTask } from '../types/scanTask.ts';
 
 export interface PersistedScreenshotRow {
   id: string;
@@ -30,10 +32,17 @@ export interface PersistedDetectionRow {
   bbox_y2: number | null;
 }
 
+export interface PersistedCandidateRow {
+  id: string;
+  screenshot_id: string;
+  status: ScanCandidateStatus;
+}
+
 interface BuildRestoredScanSessionInput {
   sessionId: string;
   mode: 'area' | 'address';
   screenshots: PersistedScreenshotRow[];
+  candidateRows?: PersistedCandidateRow[];
   detectionRows: PersistedDetectionRow[];
 }
 
@@ -66,10 +75,34 @@ function buildRestoredStatus(
   return 'complete';
 }
 
+function buildTaskStatus(
+  screenshots: PersistedScreenshotRow[],
+  candidateRows: PersistedCandidateRow[],
+): ScanTask['status'] {
+  if (screenshots.length === 0) {
+    return 'draft';
+  }
+
+  const pendingCount = screenshots.filter((row) => row.detection_status === 'pending').length;
+  if (pendingCount === screenshots.length) {
+    return 'capturing';
+  }
+  if (pendingCount > 0) {
+    return 'detecting';
+  }
+  if (candidateRows.length > 0) {
+    const hasOpenReview = candidateRows.some((row) => row.status === 'new' || row.status === 'under_review' || row.status === 'needs_info');
+    return hasOpenReview ? 'review_pending' : 'completed';
+  }
+
+  return 'completed';
+}
+
 export function buildRestoredScanSession({
   sessionId,
   mode,
   screenshots,
+  candidateRows = [],
   detectionRows,
 }: BuildRestoredScanSessionInput): ScanSession {
   const detectionRowsByScreenshot = new Map<string, PersistedDetectionRow[]>();
@@ -77,6 +110,10 @@ export function buildRestoredScanSession({
     const items = detectionRowsByScreenshot.get(row.screenshot_id) ?? [];
     items.push(row);
     detectionRowsByScreenshot.set(row.screenshot_id, items);
+  }
+  const candidateByScreenshotId = new Map<string, PersistedCandidateRow>();
+  for (const row of candidateRows) {
+    candidateByScreenshotId.set(row.screenshot_id, row);
   }
 
   const restoredScreenshots: CaptureResult[] = screenshots.map((row) => ({
@@ -99,6 +136,7 @@ export function buildRestoredScanSession({
     .filter((row) => row.detection_status !== 'pending')
     .map((row) => {
       const rows = detectionRowsByScreenshot.get(row.id) ?? [];
+      const candidate = candidateByScreenshotId.get(row.id);
       const confidence = row.max_confidence ?? Math.max(0, ...rows.map((item) => item.confidence ?? 0));
 
       return {
@@ -119,6 +157,8 @@ export function buildRestoredScanSession({
         annotatedUrl: row.annotated_url,
         uploadStatus: row.annotated_url ? 'done' : 'idle',
         reviewStatus: row.review_status ?? 'pending',
+        candidateId: candidate?.id ?? null,
+        candidateStatus: candidate?.status ?? null,
         error: row.detection_status === 'error' ? 'Detection failed' : undefined,
         detections: rows.map((item) => ({
           class_name: item.class_name ?? 'cooling_tower',
@@ -131,8 +171,21 @@ export function buildRestoredScanSession({
       };
     });
 
+  const reviewedCount = restoredDetections.filter((row) => row.reviewStatus && row.reviewStatus !== 'pending').length;
+  const task: ScanTask | null = screenshots.length > 0
+    ? {
+        id: sessionId,
+        mode,
+        status: buildTaskStatus(screenshots, candidateRows),
+        screenshotCount: restoredScreenshots.length,
+        detectedCount: restoredDetections.length,
+        reviewedCount,
+      }
+    : null;
+
   return {
     sessionId,
+    task,
     screenshots: restoredScreenshots,
     detections: restoredDetections,
     status: buildRestoredStatus(screenshots),

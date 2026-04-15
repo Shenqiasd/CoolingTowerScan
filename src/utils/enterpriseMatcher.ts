@@ -1,6 +1,7 @@
 import gcoord from 'gcoord';
 import { supabase } from '../lib/supabase';
 import { createEnterpriseHvacRepo, recomputeEnterpriseHvac } from './enterpriseHvac.ts';
+import { updateScanCandidatesByScreenshot } from './scanCandidateRepo.ts';
 
 const AMAP_KEY = 'a7330f3c7b474880113a2f76cd02d9b4';
 
@@ -68,6 +69,12 @@ export async function confirmEnterpriseMatch(
   enterpriseId: string,
   detectionData: { hasCoolingTower: boolean; count: number; confidence: number; annotatedUrl?: string | null }
 ): Promise<void> {
+  const { data: enterprise } = await supabase
+    .from('enterprises')
+    .select('enterprise_name, address')
+    .eq('id', enterpriseId)
+    .maybeSingle();
+
   await supabase
     .from('scan_screenshots')
     .update({ enterprise_id: enterpriseId })
@@ -77,6 +84,15 @@ export async function confirmEnterpriseMatch(
     .from('detection_results')
     .update({ enterprise_id: enterpriseId })
     .eq('screenshot_id', screenshotId);
+
+  await updateScanCandidatesByScreenshot(supabase, screenshotId, {
+    enterprise_id: enterpriseId,
+    status: 'approved',
+    matched_enterprise_name: enterprise?.enterprise_name ?? '',
+    matched_address: enterprise?.address ?? '',
+    reviewed_at: new Date().toISOString(),
+    rejection_reason: '',
+  });
 
   if (detectionData.annotatedUrl) {
     await supabase

@@ -35,6 +35,7 @@ import { getListSelectionUpdate, type ViewTab } from '../../utils/listSelection'
 import { applyScreenshotsReady } from '../../utils/scanSession';
 import {
   buildRestoredScanSession,
+  type PersistedCandidateRow,
   type PersistedDetectionRow,
   type PersistedScreenshotRow,
 } from '../../utils/scanSessionPersistence';
@@ -190,6 +191,7 @@ export default function AppShell() {
 
       const screenshotIds = screenshotRows.map((row) => row.id);
       let detectionRows: PersistedDetectionRow[] = [];
+      let candidateRows: PersistedCandidateRow[] = [];
       if (screenshotIds.length > 0) {
         const { data, error } = await supabase
           .from('detection_results')
@@ -199,12 +201,36 @@ export default function AppShell() {
         if (!error && data) {
           detectionRows = data as PersistedDetectionRow[];
         }
+
+        const { data: candidatesData, error: candidatesError } = await supabase
+          .from('scan_candidates')
+          .select('id, status, source_payload')
+          .eq('scan_session_id', sessionId);
+        if (!candidatesError && candidatesData) {
+          candidateRows = (candidatesData as Array<{ id: string; status: PersistedCandidateRow['status']; source_payload: Record<string, unknown> | null }>)
+            .flatMap((row) => {
+              const payload = row.source_payload ?? {};
+              const ids = [
+                typeof payload.screenshotId === 'string' ? payload.screenshotId : null,
+                ...(Array.isArray(payload.screenshotIds)
+                  ? payload.screenshotIds.filter((value): value is string => typeof value === 'string')
+                  : []),
+              ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
+
+              return ids.map((screenshotId) => ({
+                id: row.id,
+                screenshot_id: screenshotId,
+                status: row.status,
+              }));
+            });
+        }
       }
 
       const restored = buildRestoredScanSession({
         sessionId,
         mode: sessionRow.mode,
         screenshots: screenshotRows as PersistedScreenshotRow[],
+        candidateRows,
         detectionRows,
       });
 

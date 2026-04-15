@@ -6,6 +6,7 @@ import {
 import type { ScanDetection } from '../../types/pipeline';
 import { supabase } from '../../lib/supabase';
 import { getDetectionReviewImageSrc, warmImageSource } from '../../utils/reviewImage';
+import { updateScanCandidatesByScreenshot } from '../../utils/scanCandidateRepo';
 
 interface Props {
   detections: ScanDetection[];
@@ -130,6 +131,11 @@ export default function ReviewModal({
           .from('scan_screenshots')
           .update({ review_status: status })
           .eq('id', detection.screenshotId);
+        await updateScanCandidatesByScreenshot(supabase, detection.screenshotId, {
+          status: status === 'confirmed' ? 'approved' : 'rejected',
+          reviewed_at: new Date().toISOString(),
+          rejection_reason: status === 'rejected' ? 'review_modal_rejected' : '',
+        });
       }
       onReview(detection, status);
       setIndex(i => Math.min(detections.length - 1, i + 1));

@@ -5,6 +5,7 @@ import { createAddressUploadEnterpriseRepo, ensureEnterpriseForAddressUpload } f
 import { getAnnotatedUploadTarget } from '../utils/enterpriseImage';
 import { SCREENSHOT_STORAGE_BUCKET } from '../utils/storageBuckets';
 import type { ScanDetection } from '../types/pipeline';
+import { updateScanCandidatesByScreenshot } from '../utils/scanCandidateRepo';
 
 export interface AnnotatedUploadResult {
   done: number;
@@ -83,6 +84,14 @@ export function useAnnotatedUpload() {
             image_uploaded_at: new Date().toISOString(),
           })
           .eq('id', nextEnterpriseId);
+        if (detection.screenshotId) {
+          await updateScanCandidatesByScreenshot(supabase, detection.screenshotId, {
+            enterprise_id: nextEnterpriseId,
+            status: 'approved',
+            reviewed_at: new Date().toISOString(),
+            rejection_reason: '',
+          });
+        }
       }
 
       onUpdate(detection, {
@@ -90,6 +99,7 @@ export function useAnnotatedUpload() {
         uploadStatus: 'done',
         enterpriseId: nextEnterpriseId,
         matchedEnterpriseId: nextEnterpriseId,
+        candidateStatus: nextEnterpriseId ? 'approved' : detection.candidateStatus,
       });
       return { status: 'done', created };
     } catch (error) {
