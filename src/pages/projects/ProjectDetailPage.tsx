@@ -39,9 +39,12 @@ import {
 } from '../../api/projects';
 import { SOP_PHASE_LABELS, type SopPhase } from '../../types/project';
 import {
+  buildCommercialSummaryItems,
   createDefaultSolutionWorkspace,
   createSolutionWorkspaceDraft,
+  evaluateSolutionWorkspacePayload,
   serializeSolutionWorkspaceDraft,
+  splitSolutionGateErrors,
   type ProjectCommercialBranchType,
   type ProjectSolutionEmcCommercialDraft,
   type ProjectSolutionEpcCommercialDraft,
@@ -193,6 +196,12 @@ function formatAuditPayload(payload: Record<string, unknown>) {
     .slice(0, 4)
     .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`)
     .join(' · ');
+}
+
+function getSolutionSectionTone(isReady: boolean) {
+  return isReady
+    ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
+    : 'border-amber-500/20 bg-amber-500/10 text-amber-200';
 }
 
 export default function ProjectDetailPage() {
@@ -648,6 +657,28 @@ export default function ProjectDetailPage() {
       setSnapshottingSolution(false);
     }
   }, [loadProject, projectId]);
+
+  const defaultSolutionWorkspace = createDefaultSolutionWorkspace(projectId);
+  const serializedSolutionDraft = solutionDraft
+    ? serializeSolutionWorkspaceDraft(solutionDraft)
+    : null;
+  const solutionPreview = serializedSolutionDraft
+    ? evaluateSolutionWorkspacePayload(serializedSolutionDraft)
+    : null;
+  const activeCalculationSummary = solutionPreview?.calculationSummary ?? solutionWorkspace?.calculationSummary ?? defaultSolutionWorkspace.calculationSummary;
+  const activeGateValidation = solutionPreview?.gateValidation ?? solutionWorkspace?.gateValidation ?? defaultSolutionWorkspace.gateValidation;
+  const activeCommercialBranching = solutionDraft
+    ? serializedSolutionDraft?.commercialBranching ?? defaultSolutionWorkspace.commercialBranching
+    : solutionWorkspace?.commercialBranching ?? defaultSolutionWorkspace.commercialBranching;
+  const solutionGateBreakdown = solutionWorkspace
+    ? splitSolutionGateErrors(activeGateValidation.errors)
+    : { technical: [], commercial: [] };
+  const commercialSummaryItems = solutionWorkspace
+    ? buildCommercialSummaryItems({
+      commercialBranching: activeCommercialBranching,
+      calculationSummary: activeCalculationSummary,
+    })
+    : [];
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950">
@@ -1176,7 +1207,7 @@ export default function ProjectDetailPage() {
                 </button>
                 <button
                   onClick={() => void handleCreateSolutionSnapshot()}
-                  disabled={snapshottingSolution || !solutionDraft}
+                  disabled={snapshottingSolution || !solutionDraft || !activeGateValidation.canSnapshot}
                   className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:bg-amber-900/40"
                 >
                   {snapshottingSolution ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
@@ -1193,26 +1224,64 @@ export default function ProjectDetailPage() {
 
             {solutionDraft && solutionWorkspace ? (
               <div className="space-y-5">
-                <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-                  <div className="flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-amber-300" />
-                    <h4 className="text-sm font-medium text-white">快照校验</h4>
+                <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                    <div className="flex items-center gap-2">
+                      <Zap className="h-4 w-4 text-amber-300" />
+                      <h4 className="text-sm font-medium text-white">冻结门槛</h4>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`rounded-full px-2.5 py-1 ${activeGateValidation.canSnapshot ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                        {activeGateValidation.canSnapshot ? '技术与商业校验均通过' : '仍有待补齐项'}
+                      </span>
+                      <span className="text-slate-500">总缺口 {activeGateValidation.errors.length}</span>
+                      <span className="text-slate-600">基于当前编辑实时预演</span>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div className={`rounded-xl border px-3 py-3 ${getSolutionSectionTone(solutionGateBreakdown.technical.length === 0)}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-medium">技术门槛</p>
+                          <span className="text-[11px]">{solutionGateBreakdown.technical.length === 0 ? '已通过' : `${solutionGateBreakdown.technical.length} 项待补`}</span>
+                        </div>
+                        {solutionGateBreakdown.technical.length === 0 ? (
+                          <p className="mt-2 text-xs text-emerald-200/90">测算输入完整，节能结果可用于冻结。</p>
+                        ) : (
+                          <ul className="mt-3 space-y-2 text-xs">
+                            {solutionGateBreakdown.technical.map((item) => (
+                              <li key={item} className="rounded-lg border border-current/10 bg-black/10 px-3 py-2">
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+
+                      <div className={`rounded-xl border px-3 py-3 ${getSolutionSectionTone(solutionGateBreakdown.commercial.length === 0)}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-medium">商业门槛</p>
+                          <span className="text-[11px]">{solutionGateBreakdown.commercial.length === 0 ? '已通过' : `${solutionGateBreakdown.commercial.length} 项待补`}</span>
+                        </div>
+                        {solutionGateBreakdown.commercial.length === 0 ? (
+                          <p className="mt-2 text-xs text-emerald-200/90">分支字段已齐备，商业冻结确认已完成。</p>
+                        ) : (
+                          <ul className="mt-3 space-y-2 text-xs">
+                            {solutionGateBreakdown.commercial.map((item) => (
+                              <li key={item} className="rounded-lg border border-current/10 bg-black/10 px-3 py-2">
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                    <span className={`rounded-full px-2.5 py-1 ${solutionWorkspace.gateValidation.canSnapshot ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
-                      {solutionWorkspace.gateValidation.canSnapshot ? '可创建快照' : '未满足快照条件'}
-                    </span>
-                    <span className="text-slate-500">错误数 {solutionWorkspace.gateValidation.errors.length}</span>
+
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-2">
+                    {commercialSummaryItems.map((item) => (
+                      <MetricCard key={item.label} title={item.label} value={item.value} hint={item.hint} />
+                    ))}
                   </div>
-                  {solutionWorkspace.gateValidation.errors.length > 0 ? (
-                    <ul className="mt-3 space-y-2 text-xs text-amber-200">
-                      {solutionWorkspace.gateValidation.errors.map((item) => (
-                        <li key={item} className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
@@ -1335,10 +1404,10 @@ export default function ProjectDetailPage() {
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <MetricCard title="基线年耗电" value={`${solutionWorkspace.calculationSummary.baselineAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} />
-                  <MetricCard title="目标年耗电" value={`${solutionWorkspace.calculationSummary.targetAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} />
-                  <MetricCard title="年节电量" value={`${solutionWorkspace.calculationSummary.annualPowerSavingKwh.toLocaleString('zh-CN')} kWh`} />
-                  <MetricCard title="年节约电费" value={`${solutionWorkspace.calculationSummary.annualCostSavingCny.toLocaleString('zh-CN')} 元`} />
+                  <MetricCard title="基线年耗电" value={`${activeCalculationSummary.baselineAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} />
+                  <MetricCard title="目标年耗电" value={`${activeCalculationSummary.targetAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} />
+                  <MetricCard title="年节电量" value={`${activeCalculationSummary.annualPowerSavingKwh.toLocaleString('zh-CN')} kWh`} />
+                  <MetricCard title="年节约电费" value={`${activeCalculationSummary.annualCostSavingCny.toLocaleString('zh-CN')} 元`} />
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
@@ -1450,11 +1519,12 @@ function SurveyCollectionSection({
   );
 }
 
-function MetricCard({ title, value }: { title: string; value: string }) {
+function MetricCard({ title, value, hint }: { title: string; value: string; hint?: string }) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
       <p className="text-xs text-slate-500">{title}</p>
       <p className="mt-2 text-lg font-semibold text-white">{value}</p>
+      {hint ? <p className="mt-2 text-[11px] text-slate-500">{hint}</p> : null}
     </div>
   );
 }

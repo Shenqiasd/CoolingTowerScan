@@ -112,6 +112,11 @@ export interface ProjectListItem {
   currentStagePendingHandoffs: string[];
   currentStagePendingHandoffsCount: number;
   currentStageNextGateLabel: string;
+  commercialBranchType: ProjectCommercialBranchType | null;
+  commercialFreezeReady: boolean;
+  solutionCanSnapshot: boolean;
+  solutionGateErrorCount: number;
+  lastSolutionSnapshotVersion: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -201,6 +206,16 @@ type RawProjectItem = {
   current_stage_pending_handoffs_count?: number;
   currentStageNextGateLabel?: string | null;
   current_stage_next_gate_label?: string | null;
+  commercialBranchType?: ProjectCommercialBranchType | null;
+  commercial_branch_type?: ProjectCommercialBranchType | null;
+  commercialFreezeReady?: boolean;
+  commercial_freeze_ready?: boolean;
+  solutionCanSnapshot?: boolean;
+  solution_can_snapshot?: boolean;
+  solutionGateErrorCount?: number;
+  solution_gate_error_count?: number;
+  lastSolutionSnapshotVersion?: number | string;
+  last_solution_snapshot_version?: number | string;
   currentStage?: RawStage;
   current_stage?: RawStage;
   createdAt?: string;
@@ -544,6 +559,13 @@ function mapProjectListItem(raw: RawProjectItem): ProjectListItem {
       currentStage?.nextGateLabel ??
       currentStage?.gateSnapshot?.nextGateLabel ??
       currentStage?.gate_snapshot?.nextGateLabel,
+    ),
+    commercialBranchType: (raw.commercialBranchType ?? raw.commercial_branch_type ?? null) as ProjectCommercialBranchType | null,
+    commercialFreezeReady: Boolean(raw.commercialFreezeReady ?? raw.commercial_freeze_ready),
+    solutionCanSnapshot: Boolean(raw.solutionCanSnapshot ?? raw.solution_can_snapshot),
+    solutionGateErrorCount: toNumber(raw.solutionGateErrorCount ?? raw.solution_gate_error_count),
+    lastSolutionSnapshotVersion: toNumber(
+      raw.lastSolutionSnapshotVersion ?? raw.last_solution_snapshot_version,
     ),
     createdAt: raw.createdAt ?? raw.created_at ?? '',
     updatedAt: raw.updatedAt ?? raw.updated_at ?? '',

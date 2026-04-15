@@ -66,6 +66,11 @@ export interface ProjectListItem {
   currentStageBlockersCount: number;
   currentStagePendingHandoffsCount: number;
   currentStageNextGateLabel: string;
+  commercialBranchType: ProjectCommercialBranchType | null;
+  commercialFreezeReady: boolean;
+  solutionCanSnapshot: boolean;
+  solutionGateErrorCount: number;
+  lastSolutionSnapshotVersion: number;
   createdAt: string;
   updatedAt: string;
 }

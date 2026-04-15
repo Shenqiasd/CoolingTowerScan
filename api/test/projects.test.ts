@@ -56,6 +56,11 @@ const PROJECT_LIST_ITEM: ProjectListItem = {
   currentStageBlockersCount: 1,
   currentStagePendingHandoffsCount: 1,
   currentStageNextGateLabel: '完成现场初判',
+  commercialBranchType: 'epc',
+  commercialFreezeReady: true,
+  solutionCanSnapshot: true,
+  solutionGateErrorCount: 0,
+  lastSolutionSnapshotVersion: 1,
   createdAt: '2026-04-13T12:00:00.000Z',
   updatedAt: '2026-04-13T12:00:00.000Z',
 } as ProjectListItem;
@@ -236,7 +241,7 @@ const PROJECT_SOLUTION_WORKSPACE: ProjectSolutionWorkspace = {
   commercialBranching: {
     branchType: 'epc',
     branchDecisionNote: '先采用 EPC 总包交付',
-    freezeReady: false,
+    freezeReady: true,
     epc: {
       capexCny: 2600000,
       grossMarginRate: 0.18,

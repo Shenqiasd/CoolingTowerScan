@@ -402,17 +402,32 @@ function getSolutionCommercialGateErrors(
     if ((branching.epc.deliveryMonths ?? 0) <= 0) {
       errors.push('epc.deliveryMonths must be greater than 0');
     }
-    return errors;
+  } else {
+    if ((branching.emc.sharedSavingRate ?? 0) <= 0) {
+      errors.push('emc.sharedSavingRate must be greater than 0');
+    }
+    if ((branching.emc.contractYears ?? 0) <= 0) {
+      errors.push('emc.contractYears must be greater than 0');
+    }
   }
 
-  if ((branching.emc.sharedSavingRate ?? 0) <= 0) {
-    errors.push('emc.sharedSavingRate must be greater than 0');
-  }
-  if ((branching.emc.contractYears ?? 0) <= 0) {
-    errors.push('emc.contractYears must be greater than 0');
+  if (!branching.freezeReady) {
+    errors.push('commercial freezeReady must be confirmed');
   }
 
   return errors;
+}
+
+function getSolutionLastSnapshotVersion(
+  phaseData: Record<string, unknown> | null | undefined,
+): number {
+  const proposalPhase = getPhaseDataValue(phaseData, 'proposal');
+  const workspace = proposalPhase.solutionWorkspace;
+  const value = workspace && typeof workspace === 'object' && !Array.isArray(workspace)
+    ? workspace as Record<string, unknown>
+    : {};
+
+  return getNullableNumber(value.lastSnapshotVersion) ?? 0;
 }
 
 function mapEquipmentLedgerItem(row: EquipmentLedgerRow): ProjectEquipmentLedgerItem {
@@ -572,6 +587,12 @@ function resolveCurrentStage(row: ProjectRow) {
 
 function mapProject(row: ProjectRow): ProjectDetail {
   const current = resolveCurrentStage(row);
+  const commercialBranching = getSolutionCommercialBranching(row.phase_data);
+  const { gateErrors: technicalGateErrors } = getSolutionCalculationSummary(
+    getSolutionTechnicalAssumptions(row.phase_data),
+  );
+  const commercialGateErrors = getSolutionCommercialGateErrors(commercialBranching);
+  const gateErrors = [...technicalGateErrors, ...commercialGateErrors];
 
   return {
     id: row.id,
@@ -596,6 +617,11 @@ function mapProject(row: ProjectRow): ProjectDetail {
     currentStageNextGateLabel: typeof current.currentStage?.gateSnapshot.nextGateLabel === 'string'
       ? current.currentStage.gateSnapshot.nextGateLabel
       : '',
+    commercialBranchType: commercialBranching.branchType,
+    commercialFreezeReady: commercialBranching.freezeReady,
+    solutionCanSnapshot: gateErrors.length === 0,
+    solutionGateErrorCount: gateErrors.length,
+    lastSolutionSnapshotVersion: getSolutionLastSnapshotVersion(row.phase_data),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     stages: current.stages,
@@ -604,6 +630,12 @@ function mapProject(row: ProjectRow): ProjectDetail {
 
 function mapProjectListItem(row: ProjectRow): ProjectListItem {
   const current = resolveCurrentStage(row);
+  const commercialBranching = getSolutionCommercialBranching(row.phase_data);
+  const { gateErrors: technicalGateErrors } = getSolutionCalculationSummary(
+    getSolutionTechnicalAssumptions(row.phase_data),
+  );
+  const commercialGateErrors = getSolutionCommercialGateErrors(commercialBranching);
+  const gateErrors = [...technicalGateErrors, ...commercialGateErrors];
 
   return {
     id: row.id,
@@ -628,6 +660,11 @@ function mapProjectListItem(row: ProjectRow): ProjectListItem {
     currentStageNextGateLabel: typeof current.currentStage?.gateSnapshot.nextGateLabel === 'string'
       ? current.currentStage.gateSnapshot.nextGateLabel
       : '',
+    commercialBranchType: commercialBranching.branchType,
+    commercialFreezeReady: commercialBranching.freezeReady,
+    solutionCanSnapshot: gateErrors.length === 0,
+    solutionGateErrorCount: gateErrors.length,
+    lastSolutionSnapshotVersion: getSolutionLastSnapshotVersion(row.phase_data),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

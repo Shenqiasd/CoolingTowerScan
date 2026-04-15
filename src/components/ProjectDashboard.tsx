@@ -51,10 +51,29 @@ const STAGE_STATUS_LABELS = {
   waived: '已豁免',
 } as const;
 
+const COMMERCIAL_VISIBLE_PHASES: SopPhase[] = [
+  'proposal',
+  'bidding',
+  'execution',
+  'commissioning',
+  'operations',
+];
+
 function getPhaseSnapshot(project: Project) {
   const value = project.phase_data[project.current_phase];
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
+    : {};
+}
+
+function getProposalSolutionSnapshot(project: Project) {
+  const proposalPhase = project.phase_data.proposal;
+  const phaseValue = proposalPhase && typeof proposalPhase === 'object' && !Array.isArray(proposalPhase)
+    ? proposalPhase as Record<string, unknown>
+    : {};
+  const workspace = phaseValue.solutionWorkspace;
+  return workspace && typeof workspace === 'object' && !Array.isArray(workspace)
+    ? workspace as Record<string, unknown>
     : {};
 }
 
@@ -77,6 +96,44 @@ function formatDueAt(value: unknown) {
   }
 
   return new Date(timestamp).toLocaleString('zh-CN');
+}
+
+function getCommercialBranchLabel(value: unknown) {
+  if (value === 'epc') {
+    return 'EPC';
+  }
+  if (value === 'emc') {
+    return 'EMC';
+  }
+  return '未选分支';
+}
+
+function getSolutionProgressLabel(project: Project) {
+  if (!COMMERCIAL_VISIBLE_PHASES.includes(project.current_phase)) {
+    return '尚未进入方案冻结';
+  }
+
+  const workspace = getProposalSolutionSnapshot(project);
+  const branching = workspace.commercialBranching;
+  const branchValue = branching && typeof branching === 'object' && !Array.isArray(branching)
+    ? branching as Record<string, unknown>
+    : {};
+  const gateValidation = workspace.gateValidation;
+  const gateValue = gateValidation && typeof gateValidation === 'object' && !Array.isArray(gateValidation)
+    ? gateValidation as Record<string, unknown>
+    : {};
+  const lastSnapshotVersion = typeof workspace.lastSnapshotVersion === 'number'
+    ? workspace.lastSnapshotVersion
+    : 0;
+  const errorCount = typeof gateValue.errorCount === 'number'
+    ? gateValue.errorCount
+    : 0;
+  const canSnapshot = gateValue.canSnapshot === true;
+  const freezeReady = branchValue.freezeReady === true;
+
+  return `${getCommercialBranchLabel(branchValue.branchType)} · ${
+    canSnapshot ? '可冻结' : `缺 ${errorCount} 项`
+  } · ${freezeReady ? '已确认' : '待确认'} · V${lastSnapshotVersion}`;
 }
 
 export default function ProjectDashboard({
@@ -182,6 +239,11 @@ export default function ProjectDashboard({
             const snapshot = getPhaseSnapshot(project);
             const blockersCount = getCount(snapshot.blockers as unknown[]);
             const handoffsCount = getCount(snapshot.pendingHandoffs as unknown[]);
+            const solutionSnapshot = getProposalSolutionSnapshot(project);
+            const branching = solutionSnapshot.commercialBranching;
+            const branchValue = branching && typeof branching === 'object' && !Array.isArray(branching)
+              ? branching as Record<string, unknown>
+              : {};
 
             return (
               <button
@@ -199,6 +261,11 @@ export default function ProjectDashboard({
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${PRIORITY_COLORS[project.priority]}`}>
                         {project.priority === 'high' ? '高' : project.priority === 'medium' ? '中' : '低'}
                       </span>
+                      {COMMERCIAL_VISIBLE_PHASES.includes(project.current_phase) ? (
+                        <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-300">
+                          {getCommercialBranchLabel(branchValue.branchType)}
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="mt-2 flex flex-wrap gap-4 text-[11px] text-slate-500">
@@ -214,10 +281,11 @@ export default function ProjectDashboard({
                       </span>
                     </div>
 
-                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <DetailChip label="下一 Gate" value={getText(snapshot.nextGateLabel) || '待定义'} />
                       <DetailChip label="风险摘要" value={getText(snapshot.riskSummary) || '暂无风险摘要'} />
                       <DetailChip label="操作提醒" value={`阻塞 ${blockersCount} · 交接 ${handoffsCount}`} />
+                      <DetailChip label="商业分支" value={getSolutionProgressLabel(project)} />
                     </div>
                   </div>
 

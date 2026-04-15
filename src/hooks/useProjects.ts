@@ -22,6 +22,20 @@ function mapProject(item: ProjectListItem): Project {
     pendingHandoffs: item.currentStagePendingHandoffs,
     nextGateLabel: item.currentStageNextGateLabel,
   };
+  phaseData.proposal = {
+    ...phaseData.proposal,
+    solutionWorkspace: {
+      commercialBranching: {
+        branchType: item.commercialBranchType,
+        freezeReady: item.commercialFreezeReady,
+      },
+      gateValidation: {
+        canSnapshot: item.solutionCanSnapshot,
+        errorCount: item.solutionGateErrorCount,
+      },
+      lastSnapshotVersion: item.lastSolutionSnapshotVersion,
+    },
+  };
 
   return {
     id: item.id,
