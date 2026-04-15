@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, lazy, Suspense, useEffect, type SetStateAction } from 'react';
+import { useState, useCallback, useRef, lazy, Suspense, type SetStateAction } from 'react';
 import { Map, List, Loader2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import MapScreenshot from '../../components/screenshot';
@@ -17,6 +17,7 @@ import { useMapMarkers } from '../../hooks/useMapMarkers';
 import { useStats } from '../../hooks/useStats';
 import { useDetectionResults } from '../../hooks/useDetectionResults';
 import { useProjects } from '../../hooks/useProjects';
+import { useActiveScanTask } from '../../hooks/useActiveScanTask';
 import CandidateDetailPage from '../../pages/candidates/CandidateDetailPage';
 import CandidateListPage from '../../pages/candidates/CandidateListPage';
 import LeadDetailPage from '../../pages/leads/LeadDetailPage';
@@ -33,16 +34,10 @@ import { importDetectionCsv } from '../../utils/detectionImporter';
 import * as XLSX from 'xlsx';
 import { getListSelectionUpdate, type ViewTab } from '../../utils/listSelection';
 import { applyScreenshotsReady } from '../../utils/scanSession';
-import {
-  buildRestoredScanSession,
-  type PersistedCandidateRow,
-  type PersistedDetectionRow,
-  type PersistedScreenshotRow,
-} from '../../utils/scanSessionPersistence';
+import TaskStatusBanner from '../../components/discovery/TaskStatusBanner';
+import RecentTaskList from '../../components/discovery/RecentTaskList';
 
 const MapView = lazy(() => import('../../components/MapView'));
-
-const ACTIVE_SCAN_SESSION_KEY = 'active_scan_session_id';
 
 const DISCOVERY_PATHS: Record<PipelineStep, string> = {
   screenshot: '/discovery/screenshot',
@@ -101,7 +96,14 @@ export default function AppShell() {
   const isQualificationView = activeView === 'candidates' || activeView === 'leads';
   const isProjectDetailView = location.pathname.startsWith('/projects/');
 
-  const [session, setSession] = useState<ScanSession>(INITIAL_SCAN_SESSION);
+  const {
+    session,
+    setSession,
+    recentTasks,
+    selectTask,
+    refreshRecentTasks,
+    taskMeta,
+  } = useActiveScanTask();
 
   const {
     enterprises, loading, filters, setFilters, totalCount,
@@ -140,122 +142,8 @@ export default function AppShell() {
     refresh();
     refreshStats();
     refreshMarkers();
-  }, [refresh, refreshMarkers, refreshStats]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const restoreScanSession = async () => {
-      const sessionId = localStorage.getItem(ACTIVE_SCAN_SESSION_KEY);
-      if (!sessionId) {
-        return;
-      }
-
-      const { data: sessionRow, error: sessionError } = await supabase
-        .from('scan_sessions')
-        .select('id, mode')
-        .eq('id', sessionId)
-        .maybeSingle();
-      if (sessionError || !sessionRow) {
-        localStorage.removeItem(ACTIVE_SCAN_SESSION_KEY);
-        return;
-      }
-
-      const { data: screenshotRows, error: screenshotError } = await supabase
-        .from('scan_screenshots')
-        .select(`
-          id,
-          session_id,
-          enterprise_id,
-          filename,
-          storage_url,
-          annotated_url,
-          lng,
-          lat,
-          row_idx,
-          col_idx,
-          address_label,
-          resolved_address,
-          has_cooling_tower,
-          tower_count,
-          max_confidence,
-          detection_status,
-          review_status
-        `)
-        .eq('session_id', sessionId)
-        .order('created_at', { ascending: true });
-      if (screenshotError || !screenshotRows?.length) {
-        localStorage.removeItem(ACTIVE_SCAN_SESSION_KEY);
-        return;
-      }
-
-      const screenshotIds = screenshotRows.map((row) => row.id);
-      let detectionRows: PersistedDetectionRow[] = [];
-      let candidateRows: PersistedCandidateRow[] = [];
-      if (screenshotIds.length > 0) {
-        const { data, error } = await supabase
-          .from('detection_results')
-          .select('screenshot_id, confidence, class_name, bbox_x1, bbox_y1, bbox_x2, bbox_y2')
-          .in('screenshot_id', screenshotIds)
-          .order('detection_id', { ascending: true });
-        if (!error && data) {
-          detectionRows = data as PersistedDetectionRow[];
-        }
-
-        const { data: candidatesData, error: candidatesError } = await supabase
-          .from('scan_candidates')
-          .select('id, status, source_payload')
-          .eq('scan_session_id', sessionId);
-        if (!candidatesError && candidatesData) {
-          candidateRows = (candidatesData as Array<{ id: string; status: PersistedCandidateRow['status']; source_payload: Record<string, unknown> | null }>)
-            .flatMap((row) => {
-              const payload = row.source_payload ?? {};
-              const ids = [
-                typeof payload.screenshotId === 'string' ? payload.screenshotId : null,
-                ...(Array.isArray(payload.screenshotIds)
-                  ? payload.screenshotIds.filter((value): value is string => typeof value === 'string')
-                  : []),
-              ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
-
-              return ids.map((screenshotId) => ({
-                id: row.id,
-                screenshot_id: screenshotId,
-                status: row.status,
-              }));
-            });
-        }
-      }
-
-      const restored = buildRestoredScanSession({
-        sessionId,
-        mode: sessionRow.mode,
-        screenshots: screenshotRows as PersistedScreenshotRow[],
-        candidateRows,
-        detectionRows,
-      });
-
-      if (cancelled || restored.screenshots.length === 0) {
-        return;
-      }
-
-      setSession(restored);
-    };
-
-    void restoreScanSession();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (session.sessionId) {
-      localStorage.setItem(ACTIVE_SCAN_SESSION_KEY, session.sessionId);
-      return;
-    }
-
-    localStorage.removeItem(ACTIVE_SCAN_SESSION_KEY);
-  }, [session.sessionId]);
+    void refreshRecentTasks(session.sessionId ?? null);
+  }, [refresh, refreshMarkers, refreshRecentTasks, refreshStats, session.sessionId]);
 
   const handleSelectFromMap = useCallback(async (id: string) => {
     const { data } = await supabase
@@ -306,8 +194,9 @@ export default function AppShell() {
 
   const handleScreenshotsReady = useCallback((screenshots: ScreenshotResult[]) => {
     setSession((prev) => applyScreenshotsReady(prev, screenshots));
+    void refreshRecentTasks(screenshots[0]?.sessionId ?? null);
     navigate(DISCOVERY_PATHS.detection);
-  }, [navigate]);
+  }, [navigate, refreshRecentTasks, setSession]);
 
   const handleFileImport = useCallback(async (
     file: File,
@@ -432,8 +321,24 @@ export default function AppShell() {
                   : <LeadDetailPage />
             ) : (
               <>
+                <TaskStatusBanner task={session.task} meta={taskMeta} />
+
                 {activeStep === 'screenshot' && (
-                  <MapScreenshot onScreenshotsComplete={handleScreenshotsReady} />
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <RecentTaskList
+                      tasks={recentTasks}
+                      onSelect={(taskId) => {
+                        void selectTask(taskId).then((restored) => {
+                          if (restored?.task) {
+                            navigate('/discovery/detection');
+                          }
+                        });
+                      }}
+                    />
+                    <div className="flex-1 min-h-0">
+                      <MapScreenshot onScreenshotsComplete={handleScreenshotsReady} />
+                    </div>
+                  </div>
                 )}
 
                 {activeStep === 'detection' && (
