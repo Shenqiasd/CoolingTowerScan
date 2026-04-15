@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, type SetStateAction } from 'react';
 import { Radar, Play, Square, CheckCircle2, X, Settings2 } from 'lucide-react';
 import type { CaptureResult, ScanDetection, DetectionFilters } from '../types/pipeline';
+import { supabase } from '../lib/supabase';
 import { detectImage, getDetectionApiUrl, setDetectionApiUrl, checkHealth } from '../utils/detectionApi';
 import { saveDetectionResult, clearDetectionResults } from '../utils/detectionPersistence';
 import { useScreenshotFilters, DEFAULT_FILTERS } from '../hooks/useScreenshotFilters';
@@ -10,9 +11,12 @@ import { buildAnnotatedUploadPlan } from '../utils/annotatedUploadPlan';
 import { buildErrorDetection, buildScanDetection } from '../utils/detectionResultMapper';
 import { patchDetection } from '../utils/detectionState';
 import { getScreenshotIdentity, isDetectionForScreenshot } from '../utils/screenshotIdentity';
+import { updateScanCandidatesByScreenshot } from '../utils/scanCandidateRepo';
 import ScreenshotGrid from './detection/ScreenshotGrid';
+import CandidateActionBar from './detection/CandidateActionBar';
 import CandidateSummaryCards from './detection/CandidateSummaryCards';
 import { buildCandidateReviewStats } from './detection/candidateReviewStats';
+import { getCandidateWorkflowState } from './detection/candidateWorkflow';
 import DetectionFilterBar from './detection/DetectionFilterBar';
 import FloatingActionBar from './detection/FloatingActionBar';
 import ReviewModal from './detection/ReviewModal';
@@ -41,6 +45,12 @@ function formatBlockedUploadReasons(plan: ReturnType<typeof buildAnnotatedUpload
   }
   if (plan.alreadyUploaded.length > 0) {
     parts.push(`${plan.alreadyUploaded.length} 张已上传`);
+  }
+  if (plan.needsReview.length > 0) {
+    parts.push(`${plan.needsReview.length} 张待审核`);
+  }
+  if (plan.needsBinding.length > 0) {
+    parts.push(`${plan.needsBinding.length} 张待绑定企业`);
   }
   if (plan.noTower.length > 0) {
     parts.push(`${plan.noTower.length} 张无冷却塔`);
@@ -123,14 +133,18 @@ export default function DetectionPanel({
   ), []);
 
   const handlePostDetection = useCallback(async (newTowerDets: ScanDetection[]) => {
-    const result = await uploadAllAnnotated(newTowerDets, updateDetection);
-    if (result.done > 0) {
+    const addressDetections = newTowerDets.filter((item) => item.source === 'address');
+    const areaDetections = newTowerDets.filter((item) => item.source === 'area');
+    const result = await uploadAllAnnotated(addressDetections, updateDetection);
+    if (result.done > 0 || result.created > 0) {
       onDataImported?.();
     }
-    const unmatched = newTowerDets.find(
-      d => d.source === 'area' && !d.matchedEnterpriseId
-    );
-    if (unmatched) setMatchTarget(unmatched);
+    if (areaDetections.length > 0) {
+      setUploadNotice({
+        tone: 'warning',
+        message: `区域截图新增 ${areaDetections.length} 张候选，需先审核并绑定企业后再上传标注图`,
+      });
+    }
   }, [uploadAllAnnotated, updateDetection, onDataImported]);
 
   // ── handleDetect ──────────────────────────────────────────────────────────
@@ -294,6 +308,90 @@ export default function DetectionPanel({
     setMatchTarget(detection);
   }, []);
 
+  const persistReviewStatus = useCallback(async (
+    detection: ScanDetection,
+    status: 'confirmed' | 'rejected',
+    rejectionReason: string,
+  ) => {
+    if (!detection.screenshotId) {
+      return;
+    }
+
+    await supabase
+      .from('scan_screenshots')
+      .update({ review_status: status })
+      .eq('id', detection.screenshotId);
+
+    await updateScanCandidatesByScreenshot(supabase, detection.screenshotId, {
+      status: status === 'confirmed' ? 'approved' : 'rejected',
+      reviewed_at: new Date().toISOString(),
+      rejection_reason: status === 'rejected' ? rejectionReason : '',
+    });
+  }, []);
+
+  const selectedDetections = detections.filter((item) => selected.has(getScreenshotIdentity(item)));
+  const selectedCandidateDetections = selectedDetections.filter((item) => item.hasCoolingTower);
+
+  const handleBatchReview = useCallback(async (status: 'confirmed' | 'rejected') => {
+    const targets = selectedCandidateDetections.filter((item) => {
+      const workflowState = getCandidateWorkflowState(item);
+      if (status === 'confirmed') {
+        return workflowState === 'pending_review';
+      }
+
+      return workflowState !== 'rejected';
+    });
+
+    if (targets.length === 0) {
+      setUploadNotice({
+        tone: 'warning',
+        message: status === 'confirmed'
+          ? '当前选中结果没有待审核候选'
+          : '当前选中结果没有可驳回候选',
+      });
+      return;
+    }
+
+    for (const target of targets) {
+      await persistReviewStatus(
+        target,
+        status,
+        status === 'rejected' ? 'bulk_review_rejected' : '',
+      );
+    }
+
+    const targetIds = new Set(targets.map((item) => getScreenshotIdentity(item)));
+    onDetectionsUpdate((prev) => prev.map((item) => (
+      targetIds.has(getScreenshotIdentity(item))
+        ? {
+            ...item,
+            reviewStatus: status,
+            candidateStatus: status === 'confirmed' ? 'approved' : 'rejected',
+          }
+        : item
+    )));
+
+    setUploadNotice({
+      tone: 'success',
+      message: status === 'confirmed'
+        ? `已通过 ${targets.length} 张候选，请继续绑定企业`
+        : `已驳回 ${targets.length} 张候选`,
+    });
+  }, [onDetectionsUpdate, persistReviewStatus, selectedCandidateDetections]);
+
+  const handleBatchBindEnterprise = useCallback(() => {
+    const first = selectedCandidateDetections.find((item) => getCandidateWorkflowState(item) === 'needs_binding');
+    if (!first) {
+      setUploadNotice({
+        tone: 'warning',
+        message: '当前选中结果没有待绑定企业的候选',
+      });
+      return;
+    }
+
+    setMatchTarget(first);
+  }, [selectedCandidateDetections]);
+
   // ── enterprise match confirm ──────────────────────────────────────────────
 
   const handleConfirmMatch = useCallback(async (detection: ScanDetection, enterpriseId: string) => {
@@ -408,6 +506,12 @@ export default function DetectionPanel({
       )}
 
       <CandidateSummaryCards stats={candidateStats} />
+      <CandidateActionBar
+        detections={selectedCandidateDetections}
+        onApprove={() => void handleBatchReview('confirmed')}
+        onReject={() => void handleBatchReview('rejected')}
+        onBindEnterprise={handleBatchBindEnterprise}
+      />
 
       {uploadNotice && (
         <div
@@ -511,11 +615,12 @@ export default function DetectionPanel({
           setSelected(new Set());
         }}
         onLinkEnterprise={() => {
-          const first = detections.find((d) => selected.has(getScreenshotIdentity(d)) && d.hasCoolingTower);
+          const first = selectedCandidateDetections.find((item) => getCandidateWorkflowState(item) === 'needs_binding')
+            ?? selectedCandidateDetections[0];
           if (first) setMatchTarget(first);
         }}
         isDetecting={isDetecting}
-        uploadTitle={selectedUploadPlan.ready.length === 0 ? '所选截图没有可上传的标注图' : undefined}
+        uploadTitle={selectedUploadPlan.ready.length === 0 ? '所选截图需先审核或绑定企业后再上传' : undefined}
       />
 
       {/* Review modal */}

@@ -6,6 +6,7 @@ import { getAnnotatedUploadTarget } from '../utils/enterpriseImage';
 import { SCREENSHOT_STORAGE_BUCKET } from '../utils/storageBuckets';
 import type { ScanDetection } from '../types/pipeline';
 import { updateScanCandidatesByScreenshot } from '../utils/scanCandidateRepo';
+import { isDetectionReadyForAnnotatedUpload } from '../utils/annotatedUploadPlan';
 
 export interface AnnotatedUploadResult {
   done: number;
@@ -20,6 +21,10 @@ export function useAnnotatedUpload() {
     onUpdate: (detection: ScanDetection, update: Partial<ScanDetection>) => void
   ): Promise<{ status: 'done' | 'failed' | 'skipped'; created: boolean }> => {
     if (!detection.hasCoolingTower) {
+      return { status: 'skipped', created: false };
+    }
+
+    if (!isDetectionReadyForAnnotatedUpload(detection)) {
       return { status: 'skipped', created: false };
     }
 
@@ -113,7 +118,7 @@ export function useAnnotatedUpload() {
     detections: ScanDetection[],
     onUpdate: (detection: ScanDetection, update: Partial<ScanDetection>) => void
   ): Promise<AnnotatedUploadResult> => {
-    const withTowers = detections.filter(d => d.hasCoolingTower && !d.annotatedUrl);
+    const withTowers = detections.filter(d => isDetectionReadyForAnnotatedUpload(d));
     const result: AnnotatedUploadResult = { done: 0, failed: 0, skipped: 0, created: 0 };
 
     for (const d of withTowers) {

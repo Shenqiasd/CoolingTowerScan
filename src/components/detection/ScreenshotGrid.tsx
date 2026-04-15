@@ -11,6 +11,7 @@ import {
   warmImageSource,
 } from '../../utils/reviewImage';
 import UploadStatusBadge from './UploadStatusBadge';
+import { getCandidateWorkflowMeta, getCandidateWorkflowState } from './candidateWorkflow.ts';
 
 interface Props {
   screenshots: CaptureResult[];
@@ -174,6 +175,7 @@ export default function ScreenshotGrid({
             const cat = getCategory(det, confThreshold);
             const isSelected = selected.has(shotIdentity);
             const imgSrc = getScreenshotPreviewImageSrc(shot, det);
+            const candidateMeta = getCandidateWorkflowMeta(getCandidateWorkflowState(det));
             const shortName = shot.filename.length > 20
               ? shot.filename.slice(0, 9) + '…' + shot.filename.slice(-8)
               : shot.filename;
@@ -242,6 +244,11 @@ export default function ScreenshotGrid({
                       </span>
                     )}
                   </div>
+                  {candidateMeta && (
+                    <span className={`mt-1 inline-flex w-fit rounded-full px-2 py-0.5 text-[11px] ${candidateMeta.tone}`}>
+                      {candidateMeta.label}
+                    </span>
+                  )}
                 </div>
               </div>
             );
@@ -281,6 +288,7 @@ export default function ScreenshotGrid({
                 const cat = getCategory(det, confThreshold);
                 const isSelected = selected.has(shotIdentity);
                 const imgSrc = getScreenshotPreviewImageSrc(shot, det);
+                const candidateMeta = getCandidateWorkflowMeta(getCandidateWorkflowState(det));
 
                 return (
                   <tr
@@ -338,7 +346,14 @@ export default function ScreenshotGrid({
 
                     {/* Status */}
                     <td className="px-2 py-1.5">
-                      <DetectionStatusBadge category={cat} />
+                      <div className="flex flex-col items-start gap-1">
+                        <DetectionStatusBadge category={cat} />
+                        {candidateMeta && (
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] ${candidateMeta.tone}`}>
+                            {candidateMeta.label}
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Confidence */}
