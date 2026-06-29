@@ -116,4 +116,5 @@ export interface StatsData {
   approvedCandidates: number;
   rejectedCandidates: number;
   needsBindingCandidates: number;
+  candidateStatsError?: string | null;
 }

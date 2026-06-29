@@ -4,6 +4,8 @@ import cors from '@fastify/cors';
 import { loadEnv, type AppEnv } from './config/env.js';
 import { createCandidateRepo } from './modules/candidates/candidate.repo.js';
 import type { CandidateRepo } from './modules/candidates/candidate.schemas.js';
+import { createDetectionPersistenceRepo } from './modules/detections/detection.repo.js';
+import type { DetectionPersistenceRepo } from './modules/detections/detection.schemas.js';
 import { createLeadRepo } from './modules/leads/lead.repo.js';
 import type { LeadRepo } from './modules/leads/lead.schemas.js';
 import { createProjectRepo } from './modules/projects/project.repo.js';
@@ -14,6 +16,7 @@ import { errorsPlugin } from './plugins/errors.js';
 import { supabasePlugin } from './plugins/supabase.js';
 import { registerCandidateRoutes } from './routes/candidates.js';
 import { registerBootstrapRoute } from './routes/bootstrap.js';
+import { registerDetectionRoutes } from './routes/detections.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerLeadRoutes } from './routes/leads.js';
 import { registerProjectRoutes } from './routes/projects.js';
@@ -22,6 +25,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     appEnv: AppEnv;
     candidateRepo: CandidateRepo;
+    detectionPersistenceRepo: DetectionPersistenceRepo;
     leadRepo: LeadRepo;
     projectRepo: ProjectRepo;
   }
@@ -30,6 +34,7 @@ declare module 'fastify' {
 export interface BuildAppOptions {
   env?: AppEnv;
   candidateRepo?: CandidateRepo;
+  detectionPersistenceRepo?: DetectionPersistenceRepo;
   leadRepo?: LeadRepo;
   projectRepo?: ProjectRepo;
   registerRoutes?: (app: FastifyInstance) => void | Promise<void>;
@@ -58,6 +63,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       options.candidateRepo ?? createCandidateRepo(instance.supabaseAdmin),
     );
     registerCandidateRoutes(instance);
+  });
+  app.register(async (instance) => {
+    instance.decorate(
+      'detectionPersistenceRepo',
+      options.detectionPersistenceRepo ?? createDetectionPersistenceRepo(instance.supabaseAdmin),
+    );
+    registerDetectionRoutes(instance);
   });
   app.register(async (instance) => {
     instance.decorate(

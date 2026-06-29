@@ -1,9 +1,14 @@
 import mapboxgl from 'mapbox-gl';
 import { supabase } from '../../lib/supabase.ts';
-import { autoZoomForRadius, getViewportPixelSize, viewSpanAtZoom } from '../../utils/rasterViewport.ts';
+import { getViewportPixelSize } from '../../utils/rasterViewport.ts';
+import {
+  metersPerWorldPixelAtLat,
+  projectLngLatToWorldPixels,
+  unprojectWorldPixelsToLngLat,
+} from '../../utils/mercatorPixels.ts';
 import { SCREENSHOT_STORAGE_BUCKET } from '../../utils/storageBuckets.ts';
 import { buildStitchedStoragePath } from '../../utils/storagePath.ts';
-import { buildStitchLayout } from '../../utils/stitchLayout.ts';
+import { buildProjectedStitchLayout, buildStitchLayout } from '../../utils/stitchLayout.ts';
 
 export interface CaptureTask {
   row: number;
@@ -24,6 +29,8 @@ export interface CaptureResult {
   col: number;
   lng: number;
   lat: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
   source: 'area' | 'address';
   addressLabel?: string;
   resolvedAddress?: string;
@@ -44,6 +51,15 @@ export interface CaptureOptions {
   onLog?: (msg: string, type: 'info' | 'success' | 'error') => void;
   shouldStop: () => boolean;
 }
+
+const CAPTURE_HIDDEN_LAYER_IDS = [
+  'radius-circle-fill',
+  'radius-circle-line',
+  'capture-grid-fill',
+  'capture-grid-line',
+  'box-fill',
+  'box-line',
+];
 
 function waitForMapIdle(map: mapboxgl.Map, timeout = 8000): Promise<void> {
   return new Promise((resolve) => {
@@ -66,13 +82,47 @@ function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
 }
 
+function waitForRenderFlush(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
+async function captureCleanCanvasDataUrl(map: mapboxgl.Map): Promise<string> {
+  const hiddenLayers: Array<{ id: string; visibility: unknown }> = [];
+
+  for (const id of CAPTURE_HIDDEN_LAYER_IDS) {
+    if (!map.getLayer(id)) continue;
+    hiddenLayers.push({ id, visibility: map.getLayoutProperty(id, 'visibility') });
+    map.setLayoutProperty(id, 'visibility', 'none');
+  }
+
+  if (hiddenLayers.length > 0) {
+    await waitForRenderFlush();
+  }
+
+  try {
+    return map.getCanvas().toDataURL('image/png');
+  } finally {
+    for (const layer of hiddenLayers) {
+      if (!map.getLayer(layer.id)) continue;
+      const visibility = layer.visibility === 'none' ? 'none' : 'visible';
+      map.setLayoutProperty(layer.id, 'visibility', visibility);
+    }
+    if (hiddenLayers.length > 0) {
+      void waitForRenderFlush();
+    }
+  }
+}
+
 async function uploadToStorage(
   blob: Blob,
-  path: string
+  path: string,
+  contentType = blob.type || 'image/png',
 ): Promise<{ publicUrl: string | null; error: string | null }> {
   const { error } = await supabase.storage
     .from(SCREENSHOT_STORAGE_BUCKET)
-    .upload(path, blob, { contentType: 'image/png', upsert: true });
+    .upload(path, blob, { contentType, upsert: true });
   if (error) return { publicUrl: null, error: error.message };
   const { data } = supabase.storage.from(SCREENSHOT_STORAGE_BUCKET).getPublicUrl(path);
   return { publicUrl: data.publicUrl, error: null };
@@ -112,7 +162,8 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
     await sleep(delayMs);
 
     const canvas = map.getCanvas();
-    const dataUrl = canvas.toDataURL('image/png');
+    const viewport = getViewportPixelSize(canvas);
+    const dataUrl = await captureCleanCanvasDataUrl(map);
 
     const addrSuffix = task.addressLabel ? `_${task.addressLabel.slice(0, 20).replace(/[/\\?%*:|"<>]/g, '_')}` : '';
     const filename = `scan_R${task.row}_C${task.col}_Z${zoomLevel}${addrSuffix}.png`;
@@ -128,6 +179,8 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
         col: task.col,
         lng: task.lng,
         lat: task.lat,
+        viewportWidth: viewport.width,
+        viewportHeight: viewport.height,
         source: mode,
         addressLabel: task.addressLabel,
         resolvedAddress: task.resolvedAddress,
@@ -172,6 +225,8 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureResult[]>
       col: task.col,
       lng: task.lng,
       lat: task.lat,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
       source: mode,
       addressLabel: task.addressLabel,
       resolvedAddress: task.resolvedAddress,
@@ -194,27 +249,28 @@ export function buildAreaTasks(
   overlapRatio = 0.1,
   zoom?: number
 ): CaptureTask[] {
-  const centerLat = (topLeftLat + bottomRightLat) / 2;
   const canvas = map.getCanvas();
   const viewport = getViewportPixelSize(canvas);
   const z = zoom ?? map.getZoom();
-  const { spanLng, spanLat } = viewSpanAtZoom(z, viewport.width, viewport.height, centerLat);
-  const stepLng = spanLng * (1 - overlapRatio);
-  const stepLat = spanLat * (1 - overlapRatio);
+  const topLeft = projectLngLatToWorldPixels(topLeftLng, topLeftLat, z);
+  const bottomRight = projectLngLatToWorldPixels(bottomRightLng, bottomRightLat, z);
+  const stepX = viewport.width * (1 - overlapRatio);
+  const stepY = viewport.height * (1 - overlapRatio);
 
   const tasks: CaptureTask[] = [];
-  let currentLat = topLeftLat - spanLat / 2;
+  let centerY = topLeft.y + viewport.height / 2;
   let row = 0;
 
-  while (currentLat + spanLat / 2 >= bottomRightLat) {
-    let currentLng = topLeftLng + spanLng / 2;
+  while (centerY - viewport.height / 2 <= bottomRight.y) {
+    let centerX = topLeft.x + viewport.width / 2;
     let col = 0;
-    while (currentLng - spanLng / 2 <= bottomRightLng) {
-      tasks.push({ row, col, lng: currentLng, lat: currentLat });
-      currentLng += stepLng;
+    while (centerX - viewport.width / 2 <= bottomRight.x) {
+      const { lng, lat } = unprojectWorldPixelsToLngLat(centerX, centerY, z);
+      tasks.push({ row, col, lng, lat });
+      centerX += stepX;
       col++;
     }
-    currentLat -= stepLat;
+    centerY += stepY;
     row++;
   }
 
@@ -267,33 +323,29 @@ export function buildAddressGridTasks(
 ): { tasks: CaptureTask[]; gridCols: number; gridRows: number } {
   const canvas = map.getCanvas();
   const viewport = getViewportPixelSize(canvas);
-  const { spanLng, spanLat } = viewSpanAtZoom(zoom, viewport.width, viewport.height, centerLat);
-
-  // meters per tile (approximate, using center lat)
-  const metersPerDegreeLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
-  const tileWidthMeters = spanLng * metersPerDegreeLng;
-  const tileHeightMeters = spanLat * 111320;
-
-  const stepWidthMeters = tileWidthMeters * (1 - overlapRatio);
-  const stepHeightMeters = tileHeightMeters * (1 - overlapRatio);
+  const center = projectLngLatToWorldPixels(centerLng, centerLat, zoom);
+  const metersPerPixel = metersPerWorldPixelAtLat(zoom, centerLat);
+  const radiusPixels = radiusMeters / metersPerPixel;
+  const stepX = viewport.width * (1 - overlapRatio);
+  const stepY = viewport.height * (1 - overlapRatio);
 
   // Number of tiles needed to cover diameter, rounded up to odd (center tile on center point)
-  const colsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepWidthMeters));
-  const rowsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepHeightMeters));
+  const colsNeeded = Math.max(1, Math.ceil((radiusPixels * 2) / stepX));
+  const rowsNeeded = Math.max(1, Math.ceil((radiusPixels * 2) / stepY));
   const gridCols = colsNeeded % 2 === 0 ? colsNeeded + 1 : colsNeeded;
   const gridRows = rowsNeeded % 2 === 0 ? rowsNeeded + 1 : rowsNeeded;
 
   const halfCols = Math.floor(gridCols / 2);
   const halfRows = Math.floor(gridRows / 2);
 
-  const stepLng = spanLng * (1 - overlapRatio);
-  const stepLat = spanLat * (1 - overlapRatio);
-
   const tasks: CaptureTask[] = [];
   for (let row = 0; row < gridRows; row++) {
     for (let col = 0; col < gridCols; col++) {
-      const lng = centerLng + (col - halfCols) * stepLng;
-      const lat = centerLat - (row - halfRows) * stepLat;
+      const { lng, lat } = unprojectWorldPixelsToLngLat(
+        center.x + (col - halfCols) * stepX,
+        center.y + (row - halfRows) * stepY,
+        zoom,
+      );
       tasks.push({ row, col, lng, lat, addressLabel, resolvedAddress });
     }
   }
@@ -310,14 +362,12 @@ export function estimateAddressGridCount(
   centerLat = 30,
   overlapRatio = 0.1,
 ): { gridCols: number; gridRows: number; total: number } {
-  const { spanLng, spanLat } = viewSpanAtZoom(zoom, canvasWidth, canvasHeight, centerLat);
-  const metersPerDegreeLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
-  const tileWidthMeters = spanLng * metersPerDegreeLng;
-  const tileHeightMeters = spanLat * 111320;
-  const stepWidthMeters = tileWidthMeters * (1 - overlapRatio);
-  const stepHeightMeters = tileHeightMeters * (1 - overlapRatio);
-  const colsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepWidthMeters));
-  const rowsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepHeightMeters));
+  const metersPerPixel = metersPerWorldPixelAtLat(zoom, centerLat);
+  const radiusPixels = radiusMeters / metersPerPixel;
+  const stepX = canvasWidth * (1 - overlapRatio);
+  const stepY = canvasHeight * (1 - overlapRatio);
+  const colsNeeded = Math.max(1, Math.ceil((radiusPixels * 2) / stepX));
+  const rowsNeeded = Math.max(1, Math.ceil((radiusPixels * 2) / stepY));
   const gridCols = colsNeeded % 2 === 0 ? colsNeeded + 1 : colsNeeded;
   const gridRows = rowsNeeded % 2 === 0 ? rowsNeeded + 1 : rowsNeeded;
   return { gridCols, gridRows, total: gridCols * gridRows };
@@ -329,70 +379,81 @@ export async function stitchTiles(
   gridCols: number,
   gridRows: number,
   overlapRatio = 0,
+  zoomLevel?: number,
 ): Promise<Blob> {
   const firstTileDataUrl = tiles[0]?.dataUrl;
   if (!firstTileDataUrl) {
     throw new Error('missing tile image data');
   }
 
-  // Load first tile to get dimensions
-  const firstImg = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = firstTileDataUrl;
-  });
-  const tileW = firstImg.naturalWidth;
-  const tileH = firstImg.naturalHeight;
-
-  const canvas = document.createElement('canvas');
-  const layout = buildStitchLayout({
-    tileWidth: tileW,
-    tileHeight: tileH,
-    gridCols,
-    gridRows,
-    overlapRatio,
-  });
-
-  canvas.width = layout.width;
-  canvas.height = layout.height;
-  const ctx = canvas.getContext('2d')!;
-
-  await Promise.all(tiles.map(tile =>
-    new Promise<void>((resolve, reject) => {
+  const loadedTiles = await Promise.all(tiles.map(tile =>
+    new Promise<{ tile: CaptureResult; img: HTMLImageElement }>((resolve, reject) => {
       if (!tile.dataUrl) {
         reject(new Error(`missing tile image data for ${tile.row},${tile.col}`));
         return;
       }
       const img = new Image();
-      img.onload = () => {
-        const tileLayout = layout.tiles.find(
-          (entry) => entry.row === tile.row && entry.col === tile.col,
-        );
-        if (!tileLayout) {
-          reject(new Error(`missing stitch layout for tile ${tile.row},${tile.col}`));
-          return;
-        }
-        ctx.drawImage(
-          img,
-          tileLayout.srcX,
-          tileLayout.srcY,
-          tileLayout.srcWidth,
-          tileLayout.srcHeight,
-          tileLayout.destX,
-          tileLayout.destY,
-          tileLayout.srcWidth,
-          tileLayout.srcHeight,
-        );
-        resolve();
-      };
+      img.onload = () => resolve({ tile, img });
       img.onerror = reject;
       img.src = tile.dataUrl;
     })
   ));
 
+  const firstImg = loadedTiles[0].img;
+  const tileW = firstImg.naturalWidth;
+  const tileH = firstImg.naturalHeight;
+  const firstTile = loadedTiles[0].tile;
+
+  const canvas = document.createElement('canvas');
+  const layout = zoomLevel === undefined
+    ? buildStitchLayout({
+        tileWidth: tileW,
+        tileHeight: tileH,
+        gridCols,
+        gridRows,
+        overlapRatio,
+      })
+    : buildProjectedStitchLayout({
+        tileWidth: tileW,
+        tileHeight: tileH,
+        gridCols,
+        gridRows,
+        zoom: zoomLevel,
+        tiles,
+        defaultViewportWidth: firstTile.viewportWidth,
+        defaultViewportHeight: firstTile.viewportHeight,
+      });
+
+  canvas.width = layout.width;
+  canvas.height = layout.height;
+  const ctx = canvas.getContext('2d')!;
+
+  const sortedTiles = [...loadedTiles].sort(
+    (a, b) => a.tile.row - b.tile.row || a.tile.col - b.tile.col,
+  );
+
+  for (const { tile, img } of sortedTiles) {
+    const tileLayout = layout.tiles.find(
+      (entry) => entry.row === tile.row && entry.col === tile.col,
+    );
+    if (!tileLayout) {
+      throw new Error(`missing stitch layout for tile ${tile.row},${tile.col}`);
+    }
+    ctx.drawImage(
+      img,
+      tileLayout.srcX,
+      tileLayout.srcY,
+      tileLayout.srcWidth,
+      tileLayout.srcHeight,
+      tileLayout.destX,
+      tileLayout.destY,
+      tileLayout.srcWidth,
+      tileLayout.srcHeight,
+    );
+  }
+
   return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob failed')), 'image/png');
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob failed')), 'image/jpeg', 0.92);
   });
 }
 
@@ -445,15 +506,20 @@ export async function runAddressCapture(opts: {
 
   log(`拼合 ${tiles.length} 张瓦片中...`, 'info');
 
-  const stitchedBlob = await stitchTiles(tiles, gridCols, gridRows, overlapRatio);
+  const stitchedBlob = await stitchTiles(tiles, gridCols, gridRows, overlapRatio, zoomLevel);
 
   // Upload stitched image
   const safeLabel = addressLabel.slice(0, 20).replace(/[/\\?%*:|"<>]/g, '_');
-  const filename = `stitched_Z${zoomLevel}_${safeLabel}.png`;
-  const storagePath = buildStitchedStoragePath(sessionId, zoomLevel);
+  const filename = `stitched_Z${zoomLevel}_${safeLabel}.jpg`;
+  const storagePath = buildStitchedStoragePath(sessionId, zoomLevel, 'jpg');
   const { publicUrl, error: uploadError } = await uploadToStorage(stitchedBlob, storagePath);
   if (uploadError) {
     log(`拼合图上传失败: ${uploadError}`, 'error');
+    throw new Error(`拼合图上传失败: ${uploadError}`);
+  }
+  if (!publicUrl) {
+    log('拼合图上传失败: 未返回公开访问地址', 'error');
+    throw new Error('拼合图上传失败: 未返回公开访问地址');
   }
 
   log(`拼合完成 (${gridCols}×${gridRows} → ${Math.round(stitchedBlob.size / 1024)}KB)，${publicUrl ? '✓ 已上传' : '上传失败'}`, publicUrl ? 'success' : 'error');

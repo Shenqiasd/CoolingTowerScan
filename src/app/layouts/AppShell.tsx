@@ -30,8 +30,8 @@ import { INITIAL_SCAN_SESSION } from '../../types/pipeline';
 import type { SopPhase } from '../../types/project';
 import { SOP_PHASES } from '../../types/project';
 import { supabase } from '../../lib/supabase';
-import { importCsvFile } from '../../utils/csvImporter';
-import { importDetectionCsv } from '../../utils/detectionImporter';
+import { importCsvFile, importEnterpriseRows, type ImportRow } from '../../utils/csvImporter';
+import { importDetectionCsv, importDetectionRows } from '../../utils/detectionImporter';
 import * as XLSX from 'xlsx';
 import { getListSelectionUpdate, type ViewTab } from '../../utils/listSelection';
 import { applyScreenshotsReady } from '../../utils/scanSession';
@@ -233,27 +233,28 @@ export default function AppShell() {
 
   const handleFileImport = useCallback(async (
     file: File,
-    importFn: (rows: Record<string, string>[]) => Promise<{ imported: number }>,
+    importers: {
+      importFile: (file: File) => Promise<{ imported: number }>;
+      importRows: (rows: ImportRow[]) => Promise<{ imported: number }>;
+    },
   ) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
-    let rows: Record<string, string>[] = [];
 
     if (ext === 'csv') {
-      const text = await file.text();
-      rows = text.split('\n').filter(Boolean).map((line) => {
-        const values = line.split(',');
-        return Object.fromEntries(values.map((value, index) => [String(index), value]));
-      });
-    } else if (ext === 'xlsx' || ext === 'xls') {
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer);
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      rows = XLSX.utils.sheet_to_json(worksheet);
+      await importers.importFile(file);
+      handleDataImported();
+      return;
     }
 
-    if (rows.length > 0) {
-      await importFn(rows);
-      handleDataImported();
+    if (ext === 'xlsx' || ext === 'xls') {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = worksheet ? XLSX.utils.sheet_to_json<ImportRow>(worksheet, { defval: '' }) : [];
+      if (rows.length > 0) {
+        await importers.importRows(rows);
+        handleDataImported();
+      }
     }
   }, [handleDataImported]);
 
@@ -316,7 +317,10 @@ export default function AppShell() {
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) {
-            void handleFileImport(file, (rows) => importCsvFile(rows as never));
+            void handleFileImport(file, {
+              importFile: importCsvFile,
+              importRows: importEnterpriseRows,
+            });
           }
           event.target.value = '';
         }}
@@ -329,7 +333,10 @@ export default function AppShell() {
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) {
-            void handleFileImport(file, (rows) => importDetectionCsv(rows as never));
+            void handleFileImport(file, {
+              importFile: importDetectionCsv,
+              importRows: importDetectionRows,
+            });
           }
           event.target.value = '';
         }}

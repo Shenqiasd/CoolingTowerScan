@@ -32,6 +32,7 @@ export default function ReviewModal({
 
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
 
   const detection = detections[index];
 
@@ -42,11 +43,21 @@ export default function ReviewModal({
   const drawBoxes = useCallback(() => {
     const img = imgRef.current;
     const canvas = canvasRef.current;
-    if (!img || !canvas || !detection) return;
+    const container = imageContainerRef.current;
+    if (!img || !canvas || !container || !detection) return;
     if (img.naturalWidth === 0 || img.naturalHeight === 0) return;
+
+    const imageRect = img.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    if (imageRect.width === 0 || imageRect.height === 0) return;
 
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
+    canvas.style.left = `${imageRect.left - containerRect.left}px`;
+    canvas.style.top = `${imageRect.top - containerRect.top}px`;
+    canvas.style.width = `${imageRect.width}px`;
+    canvas.style.height = `${imageRect.height}px`;
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -97,6 +108,26 @@ export default function ReviewModal({
     if (!imageSrc || loadedImageSrc !== imageSrc) return;
     const frame = window.requestAnimationFrame(drawBoxes);
     return () => window.cancelAnimationFrame(frame);
+  }, [drawBoxes, imageSrc, loadedImageSrc]);
+
+  useEffect(() => {
+    if (!imageSrc || loadedImageSrc !== imageSrc) return;
+
+    let frame = 0;
+    const redraw = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(drawBoxes);
+    };
+
+    window.addEventListener('resize', redraw);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(redraw) : null;
+    if (imageContainerRef.current) observer?.observe(imageContainerRef.current);
+
+    return () => {
+      window.removeEventListener('resize', redraw);
+      observer?.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
   }, [drawBoxes, imageSrc, loadedImageSrc]);
 
   useEffect(() => {
@@ -189,7 +220,7 @@ export default function ReviewModal({
         {/* ── left panel: image (60%) ── */}
         <div className="relative flex-[6] bg-black flex flex-col">
           {/* image area */}
-          <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+          <div ref={imageContainerRef} className="flex-1 relative flex items-center justify-center overflow-hidden">
             {imageSrc ? (
               <>
                 <img
@@ -204,7 +235,7 @@ export default function ReviewModal({
                 />
                 <canvas
                   ref={canvasRef}
-                  className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                  className="absolute pointer-events-none"
                   style={{ mixBlendMode: 'normal' }}
                 />
               </>

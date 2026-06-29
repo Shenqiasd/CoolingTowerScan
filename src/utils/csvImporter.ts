@@ -1,7 +1,12 @@
 import Papa from 'papaparse';
 import { supabase } from '../lib/supabase';
 
-type CsvRow = Record<string, string>;
+export type ImportRow = Record<string, unknown>;
+
+function cellToString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value);
+}
 
 function normalizeKey(key: string): string {
   return key
@@ -11,9 +16,9 @@ function normalizeKey(key: string): string {
     .trim();
 }
 
-function findColumn(row: CsvRow, ...candidates: string[]): string {
+function findColumn(row: ImportRow, ...candidates: string[]): string {
   const normalized = Object.fromEntries(
-    Object.entries(row).map(([k, v]) => [normalizeKey(k), v])
+    Object.entries(row).map(([k, v]) => [normalizeKey(k), cellToString(v)])
   );
   for (const candidate of candidates) {
     const val = normalized[normalizeKey(candidate)];
@@ -54,49 +59,56 @@ function parseMatchDetails(raw: string): Record<string, unknown> {
   }
 }
 
+export async function importEnterpriseRows(
+  rows: ImportRow[],
+  onProgress?: (current: number, total: number) => void
+): Promise<{ imported: number; errors: string[] }> {
+  const validRows = rows.filter((row) => {
+    const acct = findColumn(row, '户号');
+    const name = findColumn(row, '户名');
+    return acct && name && acct.trim() !== '';
+  });
+  const errors: string[] = [];
+  let imported = 0;
+  const batchSize = 50;
+
+  for (let i = 0; i < validRows.length; i += batchSize) {
+    const batch = validRows.slice(i, i + batchSize).map((row) => ({
+      account_number: findColumn(row, '户号').trim(),
+      enterprise_name: findColumn(row, '户名').trim(),
+      address: findColumn(row, '用电地址').trim(),
+      industry_category: findColumn(row, '行业分类').trim(),
+      composite_score: parseFloat(findColumn(row, '综合评分')) || 0,
+      probability_level: normalizeProbabilityLevel(findColumn(row, '概率等级')),
+      match_dimension_details: parseMatchDetails(findColumn(row, '匹配维度详情')),
+      geocoding_status: 'pending',
+      detection_status: 'pending',
+    }));
+
+    const { error } = await supabase.from('enterprises').insert(batch);
+
+    if (error) {
+      errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${error.message}`);
+    } else {
+      imported += batch.length;
+    }
+
+    onProgress?.(Math.min(i + batchSize, validRows.length), validRows.length);
+  }
+
+  return { imported, errors };
+}
+
 export async function importCsvFile(
   file: File,
   onProgress?: (current: number, total: number) => void
 ): Promise<{ imported: number; errors: string[] }> {
   return new Promise((resolve, reject) => {
-    Papa.parse<CsvRow>(file, {
+    Papa.parse<ImportRow>(file, {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
-        const rows = results.data.filter((row) => {
-          const acct = findColumn(row, '户号');
-          const name = findColumn(row, '户名');
-          return acct && name && acct.trim() !== '';
-        });
-        const errors: string[] = [];
-        let imported = 0;
-        const batchSize = 50;
-
-        for (let i = 0; i < rows.length; i += batchSize) {
-          const batch = rows.slice(i, i + batchSize).map((row) => ({
-            account_number: findColumn(row, '户号').trim(),
-            enterprise_name: findColumn(row, '户名').trim(),
-            address: findColumn(row, '用电地址').trim(),
-            industry_category: findColumn(row, '行业分类').trim(),
-            composite_score: parseFloat(findColumn(row, '综合评分')) || 0,
-            probability_level: normalizeProbabilityLevel(findColumn(row, '概率等级')),
-            match_dimension_details: parseMatchDetails(findColumn(row, '匹配维度详情')),
-            geocoding_status: 'pending',
-            detection_status: 'pending',
-          }));
-
-          const { error } = await supabase.from('enterprises').insert(batch);
-
-          if (error) {
-            errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${error.message}`);
-          } else {
-            imported += batch.length;
-          }
-
-          onProgress?.(Math.min(i + batchSize, rows.length), rows.length);
-        }
-
-        resolve({ imported, errors });
+        resolve(await importEnterpriseRows(results.data, onProgress));
       },
       error: (err) => reject(err),
     });

@@ -7,6 +7,8 @@ interface Props {
   onDelete: () => void;
   onLinkEnterprise: () => void;
   isDetecting: boolean;
+  detectDisabled?: boolean;
+  detectTitle?: string;
   uploadTitle?: string;
 }
 
@@ -17,6 +19,8 @@ export default function FloatingActionBar({
   onDelete,
   onLinkEnterprise,
   isDetecting,
+  detectDisabled = false,
+  detectTitle,
   uploadTitle,
 }: Props) {
   if (selectedCount === 0) return null;
@@ -26,7 +30,8 @@ export default function FloatingActionBar({
       <span className="text-xs text-slate-400 mr-2">已选 {selectedCount} 张</span>
       <button
         onClick={onDetect}
-        disabled={isDetecting}
+        disabled={isDetecting || detectDisabled}
+        title={detectTitle}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-medium transition-colors"
       >
         <Radar className="w-3.5 h-3.5" />

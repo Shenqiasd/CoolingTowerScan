@@ -173,6 +173,12 @@ export default function ReportOverview({ stats }: Props) {
         ))}
       </div>
 
+      {stats.candidateStatsError && (
+        <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 px-4 py-3 text-xs text-rose-100">
+          Candidate 漏斗统计读取失败：{stats.candidateStatsError}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-6">
         <div className="bg-slate-800/50 border border-slate-700/40 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-1">概率等级分布</h3>

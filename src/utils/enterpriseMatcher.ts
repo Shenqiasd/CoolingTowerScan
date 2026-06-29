@@ -69,21 +69,33 @@ export async function confirmEnterpriseMatch(
   enterpriseId: string,
   detectionData: { hasCoolingTower: boolean; count: number; confidence: number; annotatedUrl?: string | null }
 ): Promise<void> {
-  const { data: enterprise } = await supabase
+  const { data: enterprise, error: enterpriseError } = await supabase
     .from('enterprises')
     .select('enterprise_name, address')
     .eq('id', enterpriseId)
     .maybeSingle();
 
-  await supabase
+  if (enterpriseError) {
+    throw enterpriseError;
+  }
+
+  const { error: screenshotError } = await supabase
     .from('scan_screenshots')
     .update({ enterprise_id: enterpriseId })
     .eq('id', screenshotId);
 
-  await supabase
+  if (screenshotError) {
+    throw screenshotError;
+  }
+
+  const { error: detectionError } = await supabase
     .from('detection_results')
     .update({ enterprise_id: enterpriseId })
     .eq('screenshot_id', screenshotId);
+
+  if (detectionError) {
+    throw detectionError;
+  }
 
   await updateScanCandidatesByScreenshot(supabase, screenshotId, {
     enterprise_id: enterpriseId,
@@ -105,10 +117,14 @@ export async function confirmEnterpriseMatch(
     enterpriseUpdate.annotated_image_url = detectionData.annotatedUrl;
   }
 
-  await supabase
+  const { error: enterpriseUpdateError } = await supabase
     .from('enterprises')
     .update(enterpriseUpdate)
     .eq('id', enterpriseId);
+
+  if (enterpriseUpdateError) {
+    throw enterpriseUpdateError;
+  }
 
   await recomputeEnterpriseHvac(createEnterpriseHvacRepo(supabase), enterpriseId);
 }

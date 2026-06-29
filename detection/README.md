@@ -35,7 +35,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 detection/weights/best.pt
 ```
 
-服务启动时会自动检测并加载。若未找到，会使用 `yolov8n.pt` 通用模型作为占位（无法识别冷却塔）。
+服务启动时会自动检测并加载。若未找到，Railway 启动脚本会尝试从 Supabase Storage 下载 `detection-weights/best.pt`；仍不可用时服务会继续启动，但 `/health` 返回 503，避免健康检查显示正常但实际推理 500。
 
 ## API
 

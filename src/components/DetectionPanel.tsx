@@ -2,14 +2,24 @@ import { useState, useCallback, useRef, useEffect, type SetStateAction } from 'r
 import { Radar, Play, Square, CheckCircle2, X, Settings2 } from 'lucide-react';
 import type { CaptureResult, ScanDetection, DetectionFilters } from '../types/pipeline';
 import { supabase } from '../lib/supabase';
-import { detectImage, getDetectionApiUrl, setDetectionApiUrl, checkHealth } from '../utils/detectionApi';
-import { saveDetectionResult, clearDetectionResults } from '../utils/detectionPersistence';
+import {
+  detectImage,
+  getDetectionApiUrl,
+  getHealthStatus,
+  setDetectionApiUrl,
+  type DetectionHealthStatus,
+} from '../utils/detectionApi';
+import { saveDetectionResult } from '../utils/detectionPersistence';
 import { useScreenshotFilters, DEFAULT_FILTERS } from '../hooks/useScreenshotFilters';
 import { useAnnotatedUpload } from '../hooks/useAnnotatedUpload';
 import { useEnterpriseMatch } from '../hooks/useEnterpriseMatch';
 import { buildAnnotatedUploadPlan } from '../utils/annotatedUploadPlan';
 import { buildErrorDetection, buildScanDetection } from '../utils/detectionResultMapper';
-import { patchDetection } from '../utils/detectionState';
+import {
+  appendErrorDetectionIfMissing,
+  patchDetection,
+  upsertDetection,
+} from '../utils/detectionState';
 import { getScreenshotIdentity, isDetectionForScreenshot } from '../utils/screenshotIdentity';
 import { updateScanCandidatesByScreenshot } from '../utils/scanCandidateRepo';
 import ScreenshotGrid from './detection/ScreenshotGrid';
@@ -32,6 +42,10 @@ type UploadNoticeTone = 'success' | 'warning' | 'error';
 
 function formatUploadNoticeMessage(parts: string[]): string {
   return parts.join('，');
+}
+
+function formatDetectionError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function formatBlockedUploadReasons(plan: ReturnType<typeof buildAnnotatedUploadPlan>): string {
@@ -72,7 +86,7 @@ export default function DetectionPanel({
 }: Props) {
   const [apiUrl, setApiUrl] = useState(getDetectionApiUrl);
   const [showSettings, setShowSettings] = useState(false);
-  const [apiHealthy, setApiHealthy] = useState<boolean | null>(null);
+  const [apiHealth, setApiHealth] = useState<DetectionHealthStatus | null>(null);
   const [conf, setConf] = useState<number>(loadConf);
   const [isDetecting, setIsDetecting] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
@@ -94,7 +108,7 @@ export default function DetectionPanel({
   }, [onDetectionsUpdate]);
 
   const handleCheckHealth = useCallback(async () => {
-    setApiHealthy(await checkHealth(apiUrl));
+    setApiHealth(await getHealthStatus(apiUrl));
   }, [apiUrl]);
 
   const handleSaveApiUrl = useCallback(() => {
@@ -114,7 +128,9 @@ export default function DetectionPanel({
 
   // ── detection core ────────────────────────────────────────────────────────
 
-  const runDetection = useCallback(async (shot: CaptureResult): Promise<ScanDetection> => {
+  const runDetection = useCallback(async (
+    shot: CaptureResult,
+  ): Promise<ScanDetection> => {
     // Prefer publicUrl (server-side download avoids CORS), fallback to dataUrl blob upload
     const src = shot.publicUrl || shot.dataUrl;
     if (!src) throw new Error('no image source');
@@ -123,7 +139,16 @@ export default function DetectionPanel({
       : await (await fetch(src)).blob();
     const result = await detectImage(imageSource, shot.filename, apiUrl, conf);
     if (shot.screenshotId) {
-      await saveDetectionResult(shot.screenshotId, shot.enterpriseId ?? null, result);
+      try {
+        const persisted = await saveDetectionResult(shot.screenshotId, shot.enterpriseId ?? null, result);
+        return buildScanDetection(shot, result, persisted);
+      } catch (error) {
+        return {
+          ...buildScanDetection(shot, result),
+          persistenceStatus: 'failed',
+          persistenceError: formatDetectionError(error),
+        };
+      }
     }
     return buildScanDetection(shot, result);
   }, [apiUrl, conf]);
@@ -151,23 +176,32 @@ export default function DetectionPanel({
 
   const handleDetect = useCallback(async () => {
     if (screenshots.length === 0) return;
+    if (apiHealth?.ok === false) {
+      setUploadNotice({ tone: 'error', message: `检测服务不可用：${apiHealth.message}` });
+      return;
+    }
     setIsDetecting(true);
     setShowBanner(false);
     shouldStopRef.current = false;
     onStatusChange('detecting');
     const working: ScanDetection[] = [...detections];
     const newTowers: ScanDetection[] = [];
+    let persistenceFailed = 0;
     for (let i = 0; i < screenshots.length; i++) {
       if (shouldStopRef.current) break;
       const shot = screenshots[i];
-      if (working.some(d => isDetectionForScreenshot(d, shot))) continue;
+      const existing = working.find(d => isDetectionForScreenshot(d, shot));
+      if (existing && !existing.error && existing.persistenceStatus !== 'failed') continue;
       try {
         const det = await runDetection(shot);
-        working.push(det);
-        if (det.hasCoolingTower) newTowers.push(det);
+        const updated = upsertDetection(working, det);
+        working.splice(0, working.length, ...updated);
+        if (det.hasCoolingTower && det.persistenceStatus !== 'failed') newTowers.push(det);
+        if (det.persistenceStatus === 'failed') persistenceFailed++;
         onDetectionsUpdate([...working]);
       } catch (err) {
-        working.push(makeErrorDet(shot, err));
+        const updated = upsertDetection(working, makeErrorDet(shot, err));
+        working.splice(0, working.length, ...updated);
         onDetectionsUpdate([...working]);
       }
     }
@@ -176,10 +210,16 @@ export default function DetectionPanel({
       setShowBanner(true);
       onStatusChange('complete');
       await handlePostDetection(newTowers);
+      if (persistenceFailed > 0) {
+        setUploadNotice({
+          tone: 'warning',
+          message: `AI 已完成识别，但 ${persistenceFailed} 张结果保存到总览链路失败。请稍后重试这些截图。`,
+        });
+      }
     } else {
       onStatusChange('idle');
     }
-  }, [screenshots, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
+  }, [screenshots, apiHealth, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
 
   const handleStop = useCallback(() => {
     shouldStopRef.current = true;
@@ -190,49 +230,72 @@ export default function DetectionPanel({
   const handleRedetect = useCallback(async (detection: ScanDetection) => {
     const shot = screenshots.find(s => isDetectionForScreenshot(detection, s));
     if (!shot) return;
-    if (shot.screenshotId) await clearDetectionResults(shot.screenshotId);
-    const without = detections.filter(d => !isDetectionForScreenshot(d, shot));
-    onDetectionsUpdate(without);
     try {
       const det = await runDetection(shot);
-      const updated = [...without, det];
+      const updated = upsertDetection(detections, det);
       onDetectionsUpdate(updated);
-      if (det.hasCoolingTower) await handlePostDetection([det]);
+      if (det.hasCoolingTower && det.persistenceStatus !== 'failed') await handlePostDetection([det]);
+      if (det.persistenceStatus === 'failed') {
+        setUploadNotice({
+          tone: 'warning',
+          message: 'AI 已完成识别，但结果保存到总览链路失败。上一轮库内结果已保留，可稍后重试。',
+        });
+      }
     } catch (err) {
-      onDetectionsUpdate([...without, makeErrorDet(shot, err)]);
+      setUploadNotice({
+        tone: 'error',
+        message: `重新识别失败：${formatDetectionError(err)}。已保留上一轮识别结果。`,
+      });
     }
-  }, [screenshots, detections, runDetection, makeErrorDet, onDetectionsUpdate, handlePostDetection]);
+  }, [screenshots, detections, runDetection, onDetectionsUpdate, handlePostDetection]);
 
   // ── handleBatchDetect ─────────────────────────────────────────────────────
 
   const handleBatchDetect = useCallback(async () => {
     const targets = screenshots.filter((s) => selected.has(getScreenshotIdentity(s)));
     if (targets.length === 0) return;
+    if (apiHealth?.ok === false) {
+      setUploadNotice({ tone: 'error', message: `检测服务不可用：${apiHealth.message}` });
+      return;
+    }
     setIsDetecting(true);
     shouldStopRef.current = false;
     onStatusChange('detecting');
-    const working: ScanDetection[] = [...detections];
+    let working: ScanDetection[] = [...detections];
     const newTowers: ScanDetection[] = [];
+    let persistenceFailed = 0;
     for (const shot of targets) {
       if (shouldStopRef.current) break;
-      const without = working.filter(d => !isDetectionForScreenshot(d, shot));
       try {
         const det = await runDetection(shot);
-        const idx = working.findIndex(d => isDetectionForScreenshot(d, shot));
-        if (idx >= 0) working[idx] = det; else working.push(det);
-        if (det.hasCoolingTower) newTowers.push(det);
+        working = upsertDetection(working, det);
+        if (det.hasCoolingTower && det.persistenceStatus !== 'failed') newTowers.push(det);
+        if (det.persistenceStatus === 'failed') persistenceFailed++;
         onDetectionsUpdate([...working]);
       } catch (err) {
         const errDet = makeErrorDet(shot, err);
-        const idx = working.findIndex(d => isDetectionForScreenshot(d, shot));
-        if (idx >= 0) working[idx] = errDet; else working.push(errDet);
+        const nextWorking = appendErrorDetectionIfMissing(working, shot, errDet);
+        if (nextWorking === working) {
+          setUploadNotice({
+            tone: 'error',
+            message: `识别失败：${formatDetectionError(err)}。已保留已有识别结果。`,
+          });
+        } else {
+          working = nextWorking;
+        }
         onDetectionsUpdate([...working]);
       }
     }
     setIsDetecting(false);
     onStatusChange(shouldStopRef.current ? 'idle' : 'complete');
     if (!shouldStopRef.current) await handlePostDetection(newTowers);
-  }, [screenshots, selected, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
+    if (!shouldStopRef.current && persistenceFailed > 0) {
+      setUploadNotice({
+        tone: 'warning',
+        message: `AI 已完成识别，但 ${persistenceFailed} 张结果保存到总览链路失败。请稍后重试这些截图。`,
+      });
+    }
+  }, [screenshots, selected, apiHealth, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
 
   // ── handleBatchUpload ─────────────────────────────────────────────────────
 
@@ -474,8 +537,9 @@ export default function DetectionPanel({
           {!isDetecting ? (
             <button
               onClick={handleDetect}
-              disabled={screenshots.length === 0 || !apiUrl.trim()}
+              disabled={screenshots.length === 0 || !apiUrl.trim() || apiHealth?.ok === false}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white rounded-md transition-colors"
+              title={apiHealth?.ok === false ? apiHealth.message : undefined}
             >
               <Play className="w-3.5 h-3.5" />
               开始识别
@@ -557,9 +621,14 @@ export default function DetectionPanel({
             >
               保存
             </button>
-            {apiHealthy !== null && (
-              <span className={`text-xs ${apiHealthy ? 'text-emerald-400' : 'text-red-400'}`}>
-                {apiHealthy ? '● 正常' : '● 异常'}
+            {apiHealth !== null && (
+              <span
+                className={`max-w-80 truncate text-xs ${apiHealth.ok ? 'text-emerald-400' : 'text-red-400'}`}
+                title={apiHealth.message}
+              >
+                {apiHealth.ok
+                  ? `● 正常${apiHealth.customWeights ? '：模型已加载' : ''}`
+                  : `● 异常：${apiHealth.message}`}
               </span>
             )}
           </div>
@@ -620,6 +689,8 @@ export default function DetectionPanel({
           if (first) setMatchTarget(first);
         }}
         isDetecting={isDetecting}
+        detectDisabled={apiHealth?.ok === false}
+        detectTitle={apiHealth?.ok === false ? apiHealth.message : undefined}
         uploadTitle={selectedUploadPlan.ready.length === 0 ? '所选截图需先审核或绑定企业后再上传' : undefined}
       />
 

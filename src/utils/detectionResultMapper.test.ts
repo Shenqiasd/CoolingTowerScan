@@ -47,6 +47,35 @@ test('buildScanDetection preserves screenshot metadata needed downstream', () =>
   assert.equal(detection.detections[0].class_name, 'cooling_tower');
 });
 
+test('buildScanDetection applies persisted candidate metadata', () => {
+  const detection = buildScanDetection(
+    baseShot,
+    {
+      has_cooling_tower: true,
+      count: 1,
+      confidence: 0.82,
+      detections: [],
+    },
+    {
+      screenshotId: 'shot-1',
+      status: 'detected',
+      hasCoolingTower: true,
+      count: 1,
+      confidence: 0.82,
+      enterpriseId: 'ent-persisted',
+      candidateId: 'candidate-1',
+      candidateStatus: 'approved',
+      detectionRowCount: 1,
+      evidenceCount: 2,
+    },
+  );
+
+  assert.equal(detection.persistenceStatus, 'saved');
+  assert.equal(detection.enterpriseId, 'ent-persisted');
+  assert.equal(detection.candidateId, 'candidate-1');
+  assert.equal(detection.candidateStatus, 'approved');
+});
+
 test('buildErrorDetection preserves screenshot metadata for failed detections', () => {
   const detection = buildErrorDetection(baseShot, new Error('network down'));
 

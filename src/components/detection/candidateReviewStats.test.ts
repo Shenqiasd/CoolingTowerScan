@@ -36,3 +36,17 @@ test('buildCandidateReviewStats groups detections by review and binding state', 
     needsBinding: 2,
   });
 });
+
+test('buildCandidateReviewStats treats restored enterprise ids as bound', () => {
+  const stats = buildCandidateReviewStats([
+    makeDetection({
+      candidateStatus: 'approved',
+      enterpriseId: 'ent-restored',
+      matchedEnterpriseId: null,
+      source: 'area',
+    }),
+  ]);
+
+  assert.equal(stats.approved, 1);
+  assert.equal(stats.needsBinding, 0);
+});

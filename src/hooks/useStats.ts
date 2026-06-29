@@ -16,6 +16,7 @@ export function useStats() {
     approvedCandidates: 0,
     rejectedCandidates: 0,
     needsBindingCandidates: 0,
+    candidateStatsError: null,
   });
   const [loading, setLoading] = useState(true);
 
@@ -38,6 +39,10 @@ export function useStats() {
       0
     );
 
+    const candidateStatsError = candidateRes.error
+      ? candidateRes.error.message || 'Candidate 统计读取失败'
+      : null;
+
     const discoveryFunnel = buildDiscoveryFunnelStats({
       totalScanTasks: scanSessionRes.count || 0,
       candidates: candidateRes.data || [],
@@ -51,6 +56,7 @@ export function useStats() {
       lowProbabilityCount: lowRes.count || 0,
       totalCoolingCapacityMW: Math.round(totalMW * 100) / 100,
       ...discoveryFunnel,
+      candidateStatsError,
     });
 
     setLoading(false);

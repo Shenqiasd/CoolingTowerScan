@@ -28,6 +28,16 @@ app.add_middleware(
 @app.get("/health")
 def health():
     weights_path = detector.resolve_weights_path()
+    if not weights_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "unhealthy",
+                "custom_weights": False,
+                "weights_path": str(weights_path),
+                "message": "YOLO weights are missing",
+            },
+        )
     return {
         "status": "ok",
         "custom_weights": weights_path.exists(),
