@@ -22,6 +22,7 @@ import {
   createProjectSolutionSnapshot,
   getProjectAudit,
   getProjectDetail,
+  getProjectHvacSurveyWorkspace,
   getProjectSolutionWorkspace,
   getProjectSurveyWorkspace,
   listProjectSolutionSnapshots,
@@ -68,6 +69,11 @@ import {
   type ProjectSurveyWorkspaceDraft,
   type SurveyRecordDraft,
 } from '../../utils/projectSurveyWorkspace';
+import { HvacSurveyPanel } from './HvacSurveyPanel';
+import {
+  createDefaultHvacSurveyWorkspace,
+  type ProjectHvacSurveyWorkspace,
+} from '../../utils/projectHvacSurveyWorkspace';
 import { supabase } from '../../lib/supabase';
 
 const STAGE_STATUS_LABELS: Record<ProjectStageStatus, string> = {
@@ -224,6 +230,7 @@ export default function ProjectDetailPage() {
   const [auditLogs, setAuditLogs] = useState<ProjectAuditItem[]>([]);
   const [surveyWorkspace, setSurveyWorkspace] = useState<ProjectSurveyWorkspace | null>(null);
   const [surveyDraft, setSurveyDraft] = useState<ProjectSurveyWorkspaceDraft | null>(null);
+  const [hvacSurveyWorkspace, setHvacSurveyWorkspace] = useState<ProjectHvacSurveyWorkspace | null>(null);
   const [solutionWorkspace, setSolutionWorkspace] = useState<ProjectSolutionWorkspace | null>(null);
   const [solutionDraft, setSolutionDraft] = useState<ProjectSolutionWorkspaceDraft | null>(null);
   const [solutionSnapshots, setSolutionSnapshots] = useState<ProjectSolutionSnapshot[]>([]);
@@ -232,6 +239,7 @@ export default function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [surveyError, setSurveyError] = useState<string | null>(null);
+  const [hvacSurveyError, setHvacSurveyError] = useState<string | null>(null);
   const [solutionError, setSolutionError] = useState<string | null>(null);
   const [savingProject, setSavingProject] = useState(false);
   const [savingStages, setSavingStages] = useState<Record<string, boolean>>({});
@@ -255,16 +263,30 @@ export default function ProjectDetailPage() {
     setNotice(null);
     setAuditError(null);
     setSurveyError(null);
+    setHvacSurveyError(null);
     setSolutionError(null);
 
     try {
-      const [detail, audit, workspaceResult, solutionWorkspaceResult, snapshotsResult] = await Promise.all([
+      const [
+        detail,
+        audit,
+        workspaceResult,
+        hvacWorkspaceResult,
+        solutionWorkspaceResult,
+        snapshotsResult,
+      ] = await Promise.all([
         getProjectDetail(projectId),
         getProjectAudit(projectId).catch((nextError) => {
           setAuditError(getErrorMessage(nextError));
           return [];
         }),
         getProjectSurveyWorkspace(projectId)
+          .then((workspace) => ({ workspace, error: null as string | null }))
+          .catch((nextError) => ({
+            workspace: null,
+            error: getErrorMessage(nextError),
+          })),
+        getProjectHvacSurveyWorkspace(projectId)
           .then((workspace) => ({ workspace, error: null as string | null }))
           .catch((nextError) => ({
             workspace: null,
@@ -296,6 +318,12 @@ export default function ProjectDetailPage() {
         setSurveyDraft(createSurveyWorkspaceDraft(createDefaultSurveyWorkspace(projectId)));
         setSurveyError(workspaceResult.error);
       }
+      if (hvacWorkspaceResult.workspace) {
+        setHvacSurveyWorkspace(hvacWorkspaceResult.workspace);
+      } else {
+        setHvacSurveyWorkspace(createDefaultHvacSurveyWorkspace(projectId));
+        setHvacSurveyError(hvacWorkspaceResult.error);
+      }
       if (solutionWorkspaceResult.workspace) {
         setSolutionWorkspace(solutionWorkspaceResult.workspace);
         setSolutionDraft(createSolutionWorkspaceDraft(solutionWorkspaceResult.workspace));
@@ -314,6 +342,7 @@ export default function ProjectDetailPage() {
       setStageDrafts({} as Record<SopPhase, StageDraft>);
       setSurveyWorkspace(null);
       setSurveyDraft(null);
+      setHvacSurveyWorkspace(null);
       setSolutionWorkspace(null);
       setSolutionDraft(null);
       setSolutionSnapshots([]);
@@ -737,6 +766,10 @@ export default function ProjectDetailPage() {
   }, [loadProject, projectId]);
 
   const defaultSolutionWorkspace = createDefaultSolutionWorkspace(projectId);
+  const canCompleteSurvey = Boolean(
+    surveyWorkspace?.gateValidation.canComplete
+    && hvacSurveyWorkspace?.gateValidation.canComplete,
+  );
   const serializedSolutionDraft = solutionDraft
     ? serializeSolutionWorkspaceDraft(solutionDraft)
     : null;
@@ -1058,7 +1091,7 @@ export default function ProjectDetailPage() {
                 </button>
                 <button
                   onClick={() => void handleCompleteSurvey()}
-                  disabled={completingSurvey || !surveyDraft}
+                  disabled={completingSurvey || !surveyDraft || !canCompleteSurvey}
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-900/40"
                 >
                   {completingSurvey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
@@ -1070,6 +1103,12 @@ export default function ProjectDetailPage() {
             {surveyError ? (
               <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-200">
                 Survey Workspace 不可用：{surveyError}
+              </div>
+            ) : null}
+
+            {hvacSurveyError ? (
+              <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-200">
+                暖通探勘工作台不可用：{hvacSurveyError}
               </div>
             ) : null}
 
@@ -1096,6 +1135,17 @@ export default function ProjectDetailPage() {
                     </ul>
                   ) : null}
                 </div>
+
+                {hvacSurveyWorkspace ? (
+                  <HvacSurveyPanel
+                    projectId={projectId}
+                    workspace={hvacSurveyWorkspace}
+                    onWorkspaceChange={setHvacSurveyWorkspace}
+                    onAuditRefresh={async () => {
+                      setAuditLogs(await getProjectAudit(projectId).catch(() => auditLogs));
+                    }}
+                  />
+                ) : null}
 
                 <div className="grid gap-4 xl:grid-cols-2">
                   <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">

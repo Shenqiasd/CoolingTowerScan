@@ -12,6 +12,18 @@ import type {
   SurveyRecordData,
 } from '../utils/projectSurveyWorkspace';
 import type {
+  CoolingStationPayload,
+  HvacSavingMode,
+  ProjectCoolingStation,
+  ProjectEquipmentMonthlyProfile,
+  ProjectHvacEquipmentAsset,
+  ProjectHvacEvaluation,
+  ProjectHvacEvaluationResult,
+  ProjectHvacSurveyWorkspace,
+  ProjectOperationRecord,
+  ProjectSurveyFile,
+} from '../utils/projectHvacSurveyWorkspace';
+import type {
   ProjectCommercialBranchType,
   ProjectSolutionCommercialBranching,
   ProjectSolutionFreezeApproval,
@@ -88,6 +100,14 @@ export type {
   ProjectSolutionWorkspacePayload,
   ProjectSurveyWorkspace,
   ProjectSurveyWorkspacePayload,
+  ProjectCoolingStation,
+  ProjectEquipmentMonthlyProfile,
+  ProjectHvacEquipmentAsset,
+  ProjectHvacEvaluation,
+  ProjectHvacEvaluationResult,
+  ProjectHvacSurveyWorkspace,
+  ProjectOperationRecord,
+  ProjectSurveyFile,
   SurveyCompletionStatus,
   SurveyInfoCollection,
   SurveyRecordData,
@@ -259,6 +279,199 @@ type RawSurveyWorkspace = {
   completion_status?: SurveyCompletionStatus;
   completedAt?: string | null;
   completed_at?: string | null;
+};
+
+type RawCoolingStation = {
+  id?: string;
+  projectId?: string;
+  project_id?: string;
+  name?: string;
+  locationLabel?: string;
+  location_label?: string;
+  notes?: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+};
+
+type RawSurveyFile = {
+  id?: string;
+  projectId?: string;
+  project_id?: string;
+  stationId?: string | null;
+  station_id?: string | null;
+  fileType?: ProjectSurveyFile['fileType'];
+  file_type?: ProjectSurveyFile['fileType'];
+  fileName?: string;
+  file_name?: string;
+  storageBucket?: string;
+  storage_bucket?: string;
+  storagePath?: string;
+  storage_path?: string;
+  mimeType?: string;
+  mime_type?: string;
+  fileSize?: number | string;
+  file_size?: number | string;
+  extractionStatus?: ProjectSurveyFile['extractionStatus'];
+  extraction_status?: ProjectSurveyFile['extractionStatus'];
+  confidence?: number | string | null;
+  errorMessage?: string;
+  error_message?: string;
+  rawExtraction?: Record<string, unknown>;
+  raw_extraction?: Record<string, unknown>;
+  reviewedPayload?: Record<string, unknown>;
+  reviewed_payload?: Record<string, unknown>;
+  createdBy?: string | null;
+  created_by?: string | null;
+  reviewedBy?: string | null;
+  reviewed_by?: string | null;
+  reviewedAt?: string | null;
+  reviewed_at?: string | null;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+};
+
+type RawHvacEquipmentAsset = {
+  id?: string;
+  projectId?: string;
+  project_id?: string;
+  stationId?: string | null;
+  station_id?: string | null;
+  sourceFileId?: string | null;
+  source_file_id?: string | null;
+  deviceType?: ProjectHvacEquipmentAsset['deviceType'];
+  device_type?: ProjectHvacEquipmentAsset['deviceType'];
+  equipmentName?: string;
+  equipment_name?: string;
+  brand?: string;
+  model?: string;
+  quantity?: number | string;
+  ratedPowerKw?: number | string | null;
+  rated_power_kw?: number | string | null;
+  ratedCoolingCapacityKw?: number | string | null;
+  rated_cooling_capacity_kw?: number | string | null;
+  ratedCop?: number | string | null;
+  rated_cop?: number | string | null;
+  frequencyHz?: number | string | null;
+  frequency_hz?: number | string | null;
+  headM?: number | string | null;
+  head_m?: number | string | null;
+  flowRateM3h?: number | string | null;
+  flow_rate_m3h?: number | string | null;
+  heatExchangeCapacityKw?: number | string | null;
+  heat_exchange_capacity_kw?: number | string | null;
+  status?: ProjectHvacEquipmentAsset['status'];
+  reviewStatus?: ProjectHvacEquipmentAsset['reviewStatus'];
+  review_status?: ProjectHvacEquipmentAsset['reviewStatus'];
+  confidence?: number | string | null;
+  notes?: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+};
+
+type RawOperationRecord = {
+  id?: string;
+  projectId?: string;
+  project_id?: string;
+  stationId?: string | null;
+  station_id?: string | null;
+  sourceFileId?: string | null;
+  source_file_id?: string | null;
+  recordDate?: string | null;
+  record_date?: string | null;
+  recordTime?: string;
+  record_time?: string;
+  shift?: string;
+  operatingStatus?: string;
+  operating_status?: string;
+  operatingHours?: number | string | null;
+  operating_hours?: number | string | null;
+  unitsOnCount?: number | string | null;
+  units_on_count?: number | string | null;
+  operatingCurrentPct?: number | string | null;
+  operating_current_pct?: number | string | null;
+  loadRatePct?: number | string | null;
+  load_rate_pct?: number | string | null;
+  measuredEnergyKwh?: number | string | null;
+  measured_energy_kwh?: number | string | null;
+  notes?: string;
+  reviewStatus?: ProjectOperationRecord['reviewStatus'];
+  review_status?: ProjectOperationRecord['reviewStatus'];
+  confidence?: number | string | null;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+};
+
+type RawMonthlyProfile = {
+  id?: string;
+  projectId?: string;
+  project_id?: string;
+  equipmentAssetId?: string;
+  equipment_asset_id?: string;
+  year?: number | string;
+  month?: number | string;
+  runNum?: number | string;
+  run_num?: number | string;
+  monthDays?: number | string;
+  month_days?: number | string;
+  runDays?: number | string;
+  run_days?: number | string;
+  runDayHours?: number | string;
+  run_day_hours?: number | string;
+  loadRatePct?: number | string;
+  load_rate_pct?: number | string;
+  operationStrategy?: ProjectEquipmentMonthlyProfile['operationStrategy'];
+  operation_strategy?: ProjectEquipmentMonthlyProfile['operationStrategy'];
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+};
+
+type RawHvacEvaluationResult = Partial<ProjectHvacEvaluationResult>;
+
+type RawHvacEvaluation = {
+  id?: string;
+  projectId?: string;
+  project_id?: string;
+  year?: number | string;
+  savingMode?: ProjectHvacEvaluation['savingMode'];
+  saving_mode?: ProjectHvacEvaluation['savingMode'];
+  result?: RawHvacEvaluationResult;
+  createdBy?: string | null;
+  created_by?: string | null;
+  createdAt?: string;
+  created_at?: string;
+};
+
+type RawHvacGateValidation = {
+  canComplete?: boolean;
+  can_complete?: boolean;
+  errors?: unknown[];
+};
+
+type RawHvacSurveyWorkspace = {
+  projectId?: string;
+  project_id?: string;
+  stations?: RawCoolingStation[];
+  files?: RawSurveyFile[];
+  equipmentAssets?: RawHvacEquipmentAsset[];
+  equipment_assets?: RawHvacEquipmentAsset[];
+  operationRecords?: RawOperationRecord[];
+  operation_records?: RawOperationRecord[];
+  monthlyProfiles?: RawMonthlyProfile[];
+  monthly_profiles?: RawMonthlyProfile[];
+  latestEvaluation?: RawHvacEvaluation | null;
+  latest_evaluation?: RawHvacEvaluation | null;
+  gateValidation?: RawHvacGateValidation;
+  gate_validation?: RawHvacGateValidation;
 };
 
 type RawSolutionTechnicalAssumptions = {
@@ -711,6 +924,168 @@ function mapSurveyWorkspace(raw: RawSurveyWorkspace): ProjectSurveyWorkspace {
   };
 }
 
+function mapCoolingStation(raw: RawCoolingStation): ProjectCoolingStation {
+  return {
+    id: raw.id ?? '',
+    projectId: raw.projectId ?? raw.project_id ?? '',
+    name: toOptionalString(raw.name),
+    locationLabel: toOptionalString(raw.locationLabel ?? raw.location_label),
+    notes: toOptionalString(raw.notes),
+    createdAt: raw.createdAt ?? raw.created_at ?? '',
+    updatedAt: raw.updatedAt ?? raw.updated_at ?? '',
+  };
+}
+
+function mapSurveyFile(raw: RawSurveyFile): ProjectSurveyFile {
+  return {
+    id: raw.id ?? '',
+    projectId: raw.projectId ?? raw.project_id ?? '',
+    stationId: raw.stationId ?? raw.station_id ?? null,
+    fileType: raw.fileType ?? raw.file_type ?? 'other',
+    fileName: toOptionalString(raw.fileName ?? raw.file_name),
+    storageBucket: toOptionalString(raw.storageBucket ?? raw.storage_bucket),
+    storagePath: toOptionalString(raw.storagePath ?? raw.storage_path),
+    mimeType: toOptionalString(raw.mimeType ?? raw.mime_type),
+    fileSize: toNumber(raw.fileSize ?? raw.file_size),
+    extractionStatus: raw.extractionStatus ?? raw.extraction_status ?? 'uploaded',
+    confidence: toNullableNumber(raw.confidence),
+    errorMessage: toOptionalString(raw.errorMessage ?? raw.error_message),
+    rawExtraction: raw.rawExtraction ?? raw.raw_extraction ?? {},
+    reviewedPayload: raw.reviewedPayload ?? raw.reviewed_payload ?? {},
+    createdBy: raw.createdBy ?? raw.created_by ?? null,
+    reviewedBy: raw.reviewedBy ?? raw.reviewed_by ?? null,
+    reviewedAt: raw.reviewedAt ?? raw.reviewed_at ?? null,
+    createdAt: raw.createdAt ?? raw.created_at ?? '',
+    updatedAt: raw.updatedAt ?? raw.updated_at ?? '',
+  };
+}
+
+function mapHvacEquipmentAsset(raw: RawHvacEquipmentAsset): ProjectHvacEquipmentAsset {
+  return {
+    id: raw.id ?? '',
+    projectId: raw.projectId ?? raw.project_id ?? '',
+    stationId: raw.stationId ?? raw.station_id ?? null,
+    sourceFileId: raw.sourceFileId ?? raw.source_file_id ?? null,
+    deviceType: raw.deviceType ?? raw.device_type ?? 'unknown',
+    equipmentName: toOptionalString(raw.equipmentName ?? raw.equipment_name),
+    brand: toOptionalString(raw.brand),
+    model: toOptionalString(raw.model),
+    quantity: toNumber(raw.quantity),
+    ratedPowerKw: toNullableNumber(raw.ratedPowerKw ?? raw.rated_power_kw),
+    ratedCoolingCapacityKw: toNullableNumber(raw.ratedCoolingCapacityKw ?? raw.rated_cooling_capacity_kw),
+    ratedCop: toNullableNumber(raw.ratedCop ?? raw.rated_cop),
+    frequencyHz: toNullableNumber(raw.frequencyHz ?? raw.frequency_hz),
+    headM: toNullableNumber(raw.headM ?? raw.head_m),
+    flowRateM3h: toNullableNumber(raw.flowRateM3h ?? raw.flow_rate_m3h),
+    heatExchangeCapacityKw: toNullableNumber(raw.heatExchangeCapacityKw ?? raw.heat_exchange_capacity_kw),
+    status: raw.status ?? 'unknown',
+    reviewStatus: raw.reviewStatus ?? raw.review_status ?? 'pending',
+    confidence: toNullableNumber(raw.confidence),
+    notes: toOptionalString(raw.notes),
+    createdAt: raw.createdAt ?? raw.created_at ?? '',
+    updatedAt: raw.updatedAt ?? raw.updated_at ?? '',
+  };
+}
+
+function mapOperationRecord(raw: RawOperationRecord): ProjectOperationRecord {
+  return {
+    id: raw.id ?? '',
+    projectId: raw.projectId ?? raw.project_id ?? '',
+    stationId: raw.stationId ?? raw.station_id ?? null,
+    sourceFileId: raw.sourceFileId ?? raw.source_file_id ?? null,
+    recordDate: raw.recordDate ?? raw.record_date ?? null,
+    recordTime: toOptionalString(raw.recordTime ?? raw.record_time),
+    shift: toOptionalString(raw.shift),
+    operatingStatus: toOptionalString(raw.operatingStatus ?? raw.operating_status),
+    operatingHours: toNullableNumber(raw.operatingHours ?? raw.operating_hours),
+    unitsOnCount: toNullableNumber(raw.unitsOnCount ?? raw.units_on_count),
+    operatingCurrentPct: toNullableNumber(raw.operatingCurrentPct ?? raw.operating_current_pct),
+    loadRatePct: toNullableNumber(raw.loadRatePct ?? raw.load_rate_pct),
+    measuredEnergyKwh: toNullableNumber(raw.measuredEnergyKwh ?? raw.measured_energy_kwh),
+    notes: toOptionalString(raw.notes),
+    reviewStatus: raw.reviewStatus ?? raw.review_status ?? 'pending',
+    confidence: toNullableNumber(raw.confidence),
+    createdAt: raw.createdAt ?? raw.created_at ?? '',
+    updatedAt: raw.updatedAt ?? raw.updated_at ?? '',
+  };
+}
+
+function mapMonthlyProfile(raw: RawMonthlyProfile): ProjectEquipmentMonthlyProfile {
+  return {
+    id: raw.id ?? '',
+    projectId: raw.projectId ?? raw.project_id ?? '',
+    equipmentAssetId: raw.equipmentAssetId ?? raw.equipment_asset_id ?? '',
+    year: toNumber(raw.year),
+    month: toNumber(raw.month),
+    runNum: toNumber(raw.runNum ?? raw.run_num),
+    monthDays: toNumber(raw.monthDays ?? raw.month_days),
+    runDays: toNumber(raw.runDays ?? raw.run_days),
+    runDayHours: toNumber(raw.runDayHours ?? raw.run_day_hours),
+    loadRatePct: toNumber(raw.loadRatePct ?? raw.load_rate_pct),
+    operationStrategy: raw.operationStrategy ?? raw.operation_strategy ?? 'partial_year',
+    createdAt: raw.createdAt ?? raw.created_at ?? '',
+    updatedAt: raw.updatedAt ?? raw.updated_at ?? '',
+  };
+}
+
+function mapHvacEvaluationResult(
+  raw: RawHvacEvaluationResult | undefined,
+): ProjectHvacEvaluationResult {
+  const byDeviceType = raw?.byDeviceType && typeof raw.byDeviceType === 'object'
+    ? raw.byDeviceType
+    : {};
+  const monthTrends = Array.isArray(raw?.monthTrends) ? raw.monthTrends : [];
+
+  return {
+    yearEnergyBeforeKwh: toNumber(raw?.yearEnergyBeforeKwh),
+    yearEnergyAfterKwh: toNumber(raw?.yearEnergyAfterKwh),
+    yearSavingEnergyKwh: toNumber(raw?.yearSavingEnergyKwh),
+    yearSavingCostCny: toNumber(raw?.yearSavingCostCny),
+    yearSavingRate: toNumber(raw?.yearSavingRate),
+    byDeviceType,
+    monthTrends: monthTrends.map((item) => ({
+      month: toNumber(item.month),
+      energyBeforeKwh: toNumber(item.energyBeforeKwh),
+      energyAfterKwh: toNumber(item.energyAfterKwh),
+      savingEnergyKwh: toNumber(item.savingEnergyKwh),
+      savingCostCny: toNumber(item.savingCostCny),
+    })),
+  };
+}
+
+function mapHvacEvaluation(raw: RawHvacEvaluation | null | undefined): ProjectHvacEvaluation | null {
+  if (!raw) {
+    return null;
+  }
+
+  return {
+    id: raw.id ?? '',
+    projectId: raw.projectId ?? raw.project_id ?? '',
+    year: toNumber(raw.year),
+    savingMode: raw.savingMode ?? raw.saving_mode ?? 'balanced',
+    result: mapHvacEvaluationResult(raw.result),
+    createdBy: raw.createdBy ?? raw.created_by ?? null,
+    createdAt: raw.createdAt ?? raw.created_at ?? '',
+  };
+}
+
+function mapHvacSurveyWorkspace(raw: RawHvacSurveyWorkspace): ProjectHvacSurveyWorkspace {
+  const gateValidation = raw.gateValidation ?? raw.gate_validation;
+  return {
+    projectId: raw.projectId ?? raw.project_id ?? '',
+    stations: (raw.stations ?? []).map(mapCoolingStation),
+    files: (raw.files ?? []).map(mapSurveyFile),
+    equipmentAssets: (raw.equipmentAssets ?? raw.equipment_assets ?? []).map(mapHvacEquipmentAsset),
+    operationRecords: (raw.operationRecords ?? raw.operation_records ?? []).map(mapOperationRecord),
+    monthlyProfiles: (raw.monthlyProfiles ?? raw.monthly_profiles ?? []).map(mapMonthlyProfile),
+    latestEvaluation: mapHvacEvaluation(raw.latestEvaluation ?? raw.latest_evaluation),
+    gateValidation: {
+      canComplete: Boolean(gateValidation?.canComplete ?? gateValidation?.can_complete),
+      errors: toStringArray(gateValidation?.errors),
+    },
+  };
+}
+
 function mapSolutionTechnicalAssumptions(
   raw: RawSolutionTechnicalAssumptions | undefined,
 ): ProjectSolutionTechnicalAssumptions {
@@ -913,6 +1288,91 @@ export async function completeProjectSurvey(projectId: string): Promise<ProjectS
     },
   );
   return mapSurveyWorkspace(response.item);
+}
+
+export async function getProjectHvacSurveyWorkspace(projectId: string): Promise<ProjectHvacSurveyWorkspace> {
+  const response = await apiRequest<{ item: RawHvacSurveyWorkspace }>(
+    `/v1/projects/${projectId}/hvac-survey`,
+  );
+  return mapHvacSurveyWorkspace(response.item);
+}
+
+export async function upsertProjectCoolingStation(
+  projectId: string,
+  input: CoolingStationPayload,
+): Promise<ProjectHvacSurveyWorkspace> {
+  const stationId = input.id?.trim();
+  const response = await apiRequest<{ item: RawHvacSurveyWorkspace }>(
+    stationId
+      ? `/v1/projects/${projectId}/hvac-survey/stations/${stationId}`
+      : `/v1/projects/${projectId}/hvac-survey/stations`,
+    {
+      method: stationId ? 'PATCH' : 'POST',
+      body: JSON.stringify({
+        name: input.name,
+        locationLabel: input.locationLabel,
+        notes: input.notes,
+      }),
+    },
+  );
+  return mapHvacSurveyWorkspace(response.item);
+}
+
+export async function deleteProjectCoolingStation(
+  projectId: string,
+  stationId: string,
+): Promise<ProjectHvacSurveyWorkspace> {
+  const response = await apiRequest<{ item: RawHvacSurveyWorkspace }>(
+    `/v1/projects/${projectId}/hvac-survey/stations/${stationId}`,
+    { method: 'DELETE' },
+  );
+  return mapHvacSurveyWorkspace(response.item);
+}
+
+export async function replaceProjectHvacEquipmentAssets(
+  projectId: string,
+  input: ProjectHvacEquipmentAsset[],
+): Promise<ProjectHvacSurveyWorkspace> {
+  const response = await apiRequest<{ item: RawHvacSurveyWorkspace }>(
+    `/v1/projects/${projectId}/hvac-survey/equipment-assets`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    },
+  );
+  return mapHvacSurveyWorkspace(response.item);
+}
+
+export async function replaceProjectHvacMonthlyProfiles(
+  projectId: string,
+  input: ProjectEquipmentMonthlyProfile[],
+): Promise<ProjectHvacSurveyWorkspace> {
+  const response = await apiRequest<{ item: RawHvacSurveyWorkspace }>(
+    `/v1/projects/${projectId}/hvac-survey/monthly-profiles`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    },
+  );
+  return mapHvacSurveyWorkspace(response.item);
+}
+
+export async function runProjectHvacEvaluation(
+  projectId: string,
+  input: {
+    year: number;
+    savingMode: HvacSavingMode;
+    electricityPricePerKwh?: number | null;
+  },
+): Promise<ProjectHvacSurveyWorkspace> {
+  const response = await apiRequest<{ item: RawHvacSurveyWorkspace }>(
+    `/v1/projects/${projectId}/hvac-survey/evaluation/run`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+  return mapHvacSurveyWorkspace(response.item);
 }
 
 export async function getProjectSolutionWorkspace(projectId: string): Promise<ProjectSolutionWorkspace> {
