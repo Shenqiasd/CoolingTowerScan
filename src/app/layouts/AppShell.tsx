@@ -27,8 +27,8 @@ import ProjectDetailPage from '../../pages/projects/ProjectDetailPage';
 import type { Enterprise } from '../../types/enterprise';
 import type { PipelineStep, ScanSession, ScanDetection } from '../../types/pipeline';
 import { INITIAL_SCAN_SESSION } from '../../types/pipeline';
-import type { SopPhase } from '../../types/project';
-import { SOP_PHASES } from '../../types/project';
+import type { SopPhase, SurveyWorkflowView } from '../../types/project';
+import { SOP_PHASES, SURVEY_WORKFLOW_VIEWS } from '../../types/project';
 import { supabase } from '../../lib/supabase';
 import { importCsvFile } from '../../utils/csvImporter';
 import { importDetectionCsv } from '../../utils/detectionImporter';
@@ -58,6 +58,22 @@ const QUALIFICATION_PATHS = {
   candidates: '/candidates',
   leads: '/leads',
 } as const;
+
+function isSopPhase(value: string | null): value is SopPhase {
+  return Boolean(value && SOP_PHASES.includes(value as SopPhase));
+}
+
+function getProjectPhaseFromSearch(search: string): SopPhase | '' {
+  const value = new URLSearchParams(search).get('phase');
+  return isSopPhase(value) ? value : '';
+}
+
+function getSurveyWorkflowFromSearch(search: string): SurveyWorkflowView {
+  const value = new URLSearchParams(search).get('module');
+  return SURVEY_WORKFLOW_VIEWS.includes(value as SurveyWorkflowView)
+    ? value as SurveyWorkflowView
+    : 'overview';
+}
 
 function getSidebarView(pathname: string): SidebarView {
   if (pathname.startsWith('/projects')) {
@@ -120,6 +136,9 @@ export default function AppShell() {
   const isDashboard = activeView === 'dashboard';
   const isQualificationView = activeView === 'candidates' || activeView === 'leads';
   const isProjectDetailView = location.pathname.startsWith('/projects/');
+  const requestedProjectPhase = isDashboard && !isProjectDetailView
+    ? getProjectPhaseFromSearch(location.search)
+    : '';
 
   const {
     session,
@@ -274,7 +293,17 @@ export default function AppShell() {
 
   const handleProjectPhaseSelect = useCallback((phase: SopPhase) => {
     setPhaseFilter(phase);
-    navigate('/projects');
+    navigate(`/projects?phase=${phase}`);
+  }, [navigate, setPhaseFilter]);
+
+  const handleSurveyWorkflowSelect = useCallback((view: SurveyWorkflowView) => {
+    setPhaseFilter('survey');
+    navigate(`/projects?phase=survey&module=${view}`);
+  }, [navigate, setPhaseFilter]);
+
+  const handleProjectPhaseFilter = useCallback((phase: SopPhase | '') => {
+    setPhaseFilter(phase);
+    navigate(phase ? `/projects?phase=${phase}` : '/projects');
   }, [navigate, setPhaseFilter]);
 
   const handleStepChange = useCallback((step: PipelineStep) => {
@@ -295,6 +324,14 @@ export default function AppShell() {
       readRecentTaskListPreference(),
     ));
   }, [activeStep]);
+
+  useEffect(() => {
+    if (!isDashboard || isProjectDetailView || requestedProjectPhase === phaseFilter) {
+      return;
+    }
+
+    setPhaseFilter(requestedProjectPhase);
+  }, [isDashboard, isProjectDetailView, phaseFilter, requestedProjectPhase, setPhaseFilter]);
 
   const handleTaskBannerToggle = useCallback(() => {
     setIsTaskBannerCollapsed((prev) => {
@@ -346,6 +383,8 @@ export default function AppShell() {
         onViewChange={handleViewChange}
         activeProjectPhase={isDashboard ? phaseFilter : ''}
         onProjectPhaseSelect={handleProjectPhaseSelect}
+        activeSurveyWorkflow={isDashboard && phaseFilter === 'survey' ? getSurveyWorkflowFromSearch(location.search) : null}
+        onSurveyWorkflowSelect={handleSurveyWorkflowSelect}
         activeStep={activeStep}
         onStepChange={handleStepChange}
         session={session}
@@ -366,7 +405,8 @@ export default function AppShell() {
               projects={projects}
               loading={projectsLoading}
               phaseFilter={phaseFilter}
-              onPhaseFilter={setPhaseFilter}
+              surveyWorkflowView={phaseFilter === 'survey' ? getSurveyWorkflowFromSearch(location.search) : null}
+              onPhaseFilter={handleProjectPhaseFilter}
               onCreateFromEnterprise={handleCreateProjectFromEnterprise}
               onSelectProject={(project) => {
                 navigate(`/projects/${project.id}`);

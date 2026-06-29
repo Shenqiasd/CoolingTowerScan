@@ -23,6 +23,24 @@ export const SOP_PHASE_LABELS: Record<SopPhase, string> = {
   operations: '运维回款',
 };
 
+export const SURVEY_WORKFLOW_VIEWS = [
+  'overview',
+  'dataCollection',
+  'dataAudit',
+  'energyEfficiency',
+  'planGeneration',
+] as const;
+
+export type SurveyWorkflowView = typeof SURVEY_WORKFLOW_VIEWS[number];
+
+export const SURVEY_WORKFLOW_LABELS: Record<SurveyWorkflowView, string> = {
+  overview: '项目概览',
+  dataCollection: '数据收资',
+  dataAudit: '数据审核',
+  energyEfficiency: '能效评估',
+  planGeneration: '方案生成',
+};
+
 // Agent 类型
 export const AGENT_TYPES = [
   'pre_sales_qualification',
