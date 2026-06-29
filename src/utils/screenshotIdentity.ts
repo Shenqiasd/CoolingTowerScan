@@ -22,6 +22,13 @@ export function findDetectionForScreenshot(
   screenshot: Pick<CaptureResult, 'filename' | 'screenshotId'>,
 ): ScanDetection | undefined {
   const screenshotIdentity = getScreenshotIdentity(screenshot);
+  const matches = detections.filter((detection) => getScreenshotIdentity(detection) === screenshotIdentity);
 
-  return detections.find((detection) => getScreenshotIdentity(detection) === screenshotIdentity);
+  for (let index = matches.length - 1; index >= 0; index--) {
+    if (!matches[index].error) {
+      return matches[index];
+    }
+  }
+
+  return matches.length > 0 ? matches[matches.length - 1] : undefined;
 }

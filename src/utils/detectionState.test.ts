@@ -68,6 +68,26 @@ test('upsertDetection replaces matching detection by screenshot identity', () =>
   assert.equal(updated[1].screenshotId, 'shot-2');
 });
 
+test('upsertDetection removes duplicate stale detections for the same screenshot', () => {
+  const staleError: ScanDetection = {
+    ...BASE_DETECTION,
+    hasCoolingTower: false,
+    count: 0,
+    confidence: 0,
+    error: 'old failure',
+  };
+
+  const updated = upsertDetection([staleError, BASE_DETECTION], {
+    ...BASE_DETECTION,
+    confidence: 0.93,
+    count: 9,
+  });
+
+  assert.equal(updated.length, 1);
+  assert.equal(updated[0].error, undefined);
+  assert.equal(updated[0].count, 9);
+});
+
 test('appendErrorDetectionIfMissing preserves an existing successful detection', () => {
   const screenshot: CaptureResult = {
     filename: BASE_DETECTION.screenshotFilename,

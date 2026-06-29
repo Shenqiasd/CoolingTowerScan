@@ -69,6 +69,22 @@ function DetectionStatusBadge({ category }: { category: Category }) {
   );
 }
 
+function PersistenceStatusBadge({ detection }: { detection?: ScanDetection }) {
+  if (detection?.persistenceStatus !== 'failed') {
+    return null;
+  }
+
+  return (
+    <span
+      className="inline-flex w-fit items-center gap-1 rounded-full bg-rose-950/70 px-2 py-0.5 text-[11px] text-rose-200"
+      title={detection.persistenceError || '识别结果保存失败'}
+    >
+      <AlertCircle className="h-3 w-3" />
+      沉淀失败
+    </span>
+  );
+}
+
 const cardBorderColor: Record<Category, string> = {
   tower:      'border-emerald-600',
   suspicious: 'border-amber-500',
@@ -249,6 +265,7 @@ export default function ScreenshotGrid({
                       {candidateMeta.label}
                     </span>
                   )}
+                  <PersistenceStatusBadge detection={det} />
                 </div>
               </div>
             );
@@ -353,6 +370,7 @@ export default function ScreenshotGrid({
                             {candidateMeta.label}
                           </span>
                         )}
+                        <PersistenceStatusBadge detection={det} />
                       </div>
                     </td>
 

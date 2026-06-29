@@ -8,7 +8,7 @@ import { supabase } from '../../lib/supabase';
 interface Props {
   detection: ScanDetection;
   onClose: () => void;
-  onConfirm: (detection: ScanDetection, enterpriseId: string) => void;
+  onConfirm: (detection: ScanDetection, enterpriseId: string) => Promise<void>;
 }
 
 export default function EnterpriseMatchModal({ detection, onClose, onConfirm }: Props) {
@@ -47,7 +47,7 @@ export default function EnterpriseMatchModal({ detection, onClose, onConfirm }: 
   const handleConfirm = useCallback(async (enterpriseId: string) => {
     setConfirming(enterpriseId);
     try {
-      onConfirm(detection, enterpriseId);
+      await onConfirm(detection, enterpriseId);
       onClose();
     } finally {
       setConfirming(null);

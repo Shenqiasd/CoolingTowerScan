@@ -9,7 +9,7 @@ import {
   setDetectionApiUrl,
   type DetectionHealthStatus,
 } from '../utils/detectionApi';
-import { saveDetectionResult, clearDetectionResults } from '../utils/detectionPersistence';
+import { saveDetectionResult } from '../utils/detectionPersistence';
 import { useScreenshotFilters, DEFAULT_FILTERS } from '../hooks/useScreenshotFilters';
 import { useAnnotatedUpload } from '../hooks/useAnnotatedUpload';
 import { useEnterpriseMatch } from '../hooks/useEnterpriseMatch';
@@ -130,7 +130,6 @@ export default function DetectionPanel({
 
   const runDetection = useCallback(async (
     shot: CaptureResult,
-    options: { replaceStoredResult?: boolean } = {},
   ): Promise<ScanDetection> => {
     // Prefer publicUrl (server-side download avoids CORS), fallback to dataUrl blob upload
     const src = shot.publicUrl || shot.dataUrl;
@@ -140,10 +139,16 @@ export default function DetectionPanel({
       : await (await fetch(src)).blob();
     const result = await detectImage(imageSource, shot.filename, apiUrl, conf);
     if (shot.screenshotId) {
-      if (options.replaceStoredResult) {
-        await clearDetectionResults(shot.screenshotId);
+      try {
+        const persisted = await saveDetectionResult(shot.screenshotId, shot.enterpriseId ?? null, result);
+        return buildScanDetection(shot, result, persisted);
+      } catch (error) {
+        return {
+          ...buildScanDetection(shot, result),
+          persistenceStatus: 'failed',
+          persistenceError: formatDetectionError(error),
+        };
       }
-      await saveDetectionResult(shot.screenshotId, shot.enterpriseId ?? null, result);
     }
     return buildScanDetection(shot, result);
   }, [apiUrl, conf]);
@@ -181,17 +186,22 @@ export default function DetectionPanel({
     onStatusChange('detecting');
     const working: ScanDetection[] = [...detections];
     const newTowers: ScanDetection[] = [];
+    let persistenceFailed = 0;
     for (let i = 0; i < screenshots.length; i++) {
       if (shouldStopRef.current) break;
       const shot = screenshots[i];
-      if (working.some(d => isDetectionForScreenshot(d, shot))) continue;
+      const existing = working.find(d => isDetectionForScreenshot(d, shot));
+      if (existing && !existing.error && existing.persistenceStatus !== 'failed') continue;
       try {
         const det = await runDetection(shot);
-        working.push(det);
-        if (det.hasCoolingTower) newTowers.push(det);
+        const updated = upsertDetection(working, det);
+        working.splice(0, working.length, ...updated);
+        if (det.hasCoolingTower && det.persistenceStatus !== 'failed') newTowers.push(det);
+        if (det.persistenceStatus === 'failed') persistenceFailed++;
         onDetectionsUpdate([...working]);
       } catch (err) {
-        working.push(makeErrorDet(shot, err));
+        const updated = upsertDetection(working, makeErrorDet(shot, err));
+        working.splice(0, working.length, ...updated);
         onDetectionsUpdate([...working]);
       }
     }
@@ -200,6 +210,12 @@ export default function DetectionPanel({
       setShowBanner(true);
       onStatusChange('complete');
       await handlePostDetection(newTowers);
+      if (persistenceFailed > 0) {
+        setUploadNotice({
+          tone: 'warning',
+          message: `AI 已完成识别，但 ${persistenceFailed} 张结果保存到总览链路失败。请稍后重试这些截图。`,
+        });
+      }
     } else {
       onStatusChange('idle');
     }
@@ -215,10 +231,16 @@ export default function DetectionPanel({
     const shot = screenshots.find(s => isDetectionForScreenshot(detection, s));
     if (!shot) return;
     try {
-      const det = await runDetection(shot, { replaceStoredResult: true });
+      const det = await runDetection(shot);
       const updated = upsertDetection(detections, det);
       onDetectionsUpdate(updated);
-      if (det.hasCoolingTower) await handlePostDetection([det]);
+      if (det.hasCoolingTower && det.persistenceStatus !== 'failed') await handlePostDetection([det]);
+      if (det.persistenceStatus === 'failed') {
+        setUploadNotice({
+          tone: 'warning',
+          message: 'AI 已完成识别，但结果保存到总览链路失败。上一轮库内结果已保留，可稍后重试。',
+        });
+      }
     } catch (err) {
       setUploadNotice({
         tone: 'error',
@@ -241,14 +263,14 @@ export default function DetectionPanel({
     onStatusChange('detecting');
     let working: ScanDetection[] = [...detections];
     const newTowers: ScanDetection[] = [];
+    let persistenceFailed = 0;
     for (const shot of targets) {
       if (shouldStopRef.current) break;
-      const without = working.filter(d => !isDetectionForScreenshot(d, shot));
       try {
-        const det = await runDetection(shot, { replaceStoredResult: without.length !== working.length });
-        const idx = working.findIndex(d => isDetectionForScreenshot(d, shot));
-        if (idx >= 0) working[idx] = det; else working.push(det);
-        if (det.hasCoolingTower) newTowers.push(det);
+        const det = await runDetection(shot);
+        working = upsertDetection(working, det);
+        if (det.hasCoolingTower && det.persistenceStatus !== 'failed') newTowers.push(det);
+        if (det.persistenceStatus === 'failed') persistenceFailed++;
         onDetectionsUpdate([...working]);
       } catch (err) {
         const errDet = makeErrorDet(shot, err);
@@ -267,6 +289,12 @@ export default function DetectionPanel({
     setIsDetecting(false);
     onStatusChange(shouldStopRef.current ? 'idle' : 'complete');
     if (!shouldStopRef.current) await handlePostDetection(newTowers);
+    if (!shouldStopRef.current && persistenceFailed > 0) {
+      setUploadNotice({
+        tone: 'warning',
+        message: `AI 已完成识别，但 ${persistenceFailed} 张结果保存到总览链路失败。请稍后重试这些截图。`,
+      });
+    }
   }, [screenshots, selected, apiHealth, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
 
   // ── handleBatchUpload ─────────────────────────────────────────────────────

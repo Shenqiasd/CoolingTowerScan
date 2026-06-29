@@ -34,6 +34,8 @@ export interface ScanDetection {
   publicUrl?: string | null;    // original uploaded URL
   annotatedUrl?: string | null; // annotated image URL (bbox drawn)
   uploadStatus?: 'idle' | 'uploading' | 'done' | 'failed';
+  persistenceStatus?: 'saved' | 'failed';
+  persistenceError?: string;
   reviewStatus?: 'pending' | 'confirmed' | 'rejected';
   candidateId?: string | null;
   candidateStatus?: ScanCandidateStatus | null;

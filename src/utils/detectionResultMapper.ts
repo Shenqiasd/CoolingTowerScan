@@ -1,14 +1,15 @@
 import type { CaptureResult, ScanDetection } from '../types/pipeline.ts';
+import type { PersistDetectionResultResponse } from '../api/detections.ts';
 import type { DetectionApiResult } from './detectionApi.ts';
 
 export function buildScanDetection(
   shot: CaptureResult,
   result: DetectionApiResult,
+  persisted?: PersistDetectionResultResponse,
 ): ScanDetection {
   return {
     screenshotFilename: shot.filename,
     screenshotId: shot.screenshotId,
-    enterpriseId: shot.enterpriseId ?? null,
     lng: shot.lng,
     lat: shot.lat,
     source: shot.source,
@@ -20,6 +21,10 @@ export function buildScanDetection(
     imageUrl: shot.publicUrl ?? shot.dataUrl ?? null,
     dataUrl: shot.dataUrl ?? null,
     publicUrl: shot.publicUrl,
+    persistenceStatus: persisted ? 'saved' : undefined,
+    candidateId: persisted?.candidateId ?? undefined,
+    candidateStatus: persisted?.candidateStatus ?? undefined,
+    enterpriseId: persisted?.enterpriseId ?? shot.enterpriseId ?? null,
     detections: result.detections.map((d) => ({
       class_name: d.class_name,
       confidence: d.confidence,

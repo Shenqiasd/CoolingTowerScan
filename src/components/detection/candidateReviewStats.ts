@@ -29,7 +29,13 @@ export function buildCandidateReviewStats(detections: ScanDetection[]): Candidat
       acc.rejected += 1;
     }
 
-    if (detection.hasCoolingTower && detection.source === 'area' && !detection.matchedEnterpriseId && detection.candidateStatus !== 'rejected') {
+    if (
+      detection.hasCoolingTower
+      && detection.source === 'area'
+      && !detection.enterpriseId
+      && !detection.matchedEnterpriseId
+      && detection.candidateStatus !== 'rejected'
+    ) {
       acc.needsBinding += 1;
     }
 

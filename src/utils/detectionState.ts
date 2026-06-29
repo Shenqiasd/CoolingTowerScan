@@ -20,15 +20,25 @@ export function upsertDetection(
   nextDetection: ScanDetection,
 ): ScanDetection[] {
   const nextIdentity = getScreenshotIdentity(nextDetection);
-  const index = detections.findIndex((detection) => getScreenshotIdentity(detection) === nextIdentity);
+  let replaced = false;
+  const deduped = detections.flatMap((detection) => {
+    if (getScreenshotIdentity(detection) !== nextIdentity) {
+      return [detection];
+    }
 
-  if (index < 0) {
-    return [...detections, nextDetection];
+    if (replaced) {
+      return [];
+    }
+
+    replaced = true;
+    return [nextDetection];
+  });
+
+  if (!replaced) {
+    return [...deduped, nextDetection];
   }
 
-  return detections.map((detection, detectionIndex) => (
-    detectionIndex === index ? nextDetection : detection
-  ));
+  return deduped;
 }
 
 export function appendErrorDetectionIfMissing(

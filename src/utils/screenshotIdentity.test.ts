@@ -67,3 +67,23 @@ test('findDetectionForScreenshot prefers screenshot id over duplicated filenames
   assert.equal(matched?.screenshotId, 'shot-new');
   assert.equal(matched?.count, 6);
 });
+
+test('findDetectionForScreenshot prefers a later successful result over a stale error', () => {
+  const errorDetection: ScanDetection = {
+    ...staleDetection,
+    screenshotId: 'shot-new',
+    error: 'old failure',
+  };
+  const successDetection: ScanDetection = {
+    ...staleDetection,
+    screenshotId: 'shot-new',
+    hasCoolingTower: true,
+    count: 8,
+    confidence: 0.7,
+  };
+
+  const matched = findDetectionForScreenshot([errorDetection, successDetection], shot);
+
+  assert.equal(matched?.error, undefined);
+  assert.equal(matched?.count, 8);
+});
