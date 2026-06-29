@@ -15,7 +15,11 @@ import { useAnnotatedUpload } from '../hooks/useAnnotatedUpload';
 import { useEnterpriseMatch } from '../hooks/useEnterpriseMatch';
 import { buildAnnotatedUploadPlan } from '../utils/annotatedUploadPlan';
 import { buildErrorDetection, buildScanDetection } from '../utils/detectionResultMapper';
-import { patchDetection } from '../utils/detectionState';
+import {
+  appendErrorDetectionIfMissing,
+  patchDetection,
+  upsertDetection,
+} from '../utils/detectionState';
 import { getScreenshotIdentity, isDetectionForScreenshot } from '../utils/screenshotIdentity';
 import { updateScanCandidatesByScreenshot } from '../utils/scanCandidateRepo';
 import ScreenshotGrid from './detection/ScreenshotGrid';
@@ -38,6 +42,10 @@ type UploadNoticeTone = 'success' | 'warning' | 'error';
 
 function formatUploadNoticeMessage(parts: string[]): string {
   return parts.join('，');
+}
+
+function formatDetectionError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function formatBlockedUploadReasons(plan: ReturnType<typeof buildAnnotatedUploadPlan>): string {
@@ -120,7 +128,10 @@ export default function DetectionPanel({
 
   // ── detection core ────────────────────────────────────────────────────────
 
-  const runDetection = useCallback(async (shot: CaptureResult): Promise<ScanDetection> => {
+  const runDetection = useCallback(async (
+    shot: CaptureResult,
+    options: { replaceStoredResult?: boolean } = {},
+  ): Promise<ScanDetection> => {
     // Prefer publicUrl (server-side download avoids CORS), fallback to dataUrl blob upload
     const src = shot.publicUrl || shot.dataUrl;
     if (!src) throw new Error('no image source');
@@ -129,6 +140,9 @@ export default function DetectionPanel({
       : await (await fetch(src)).blob();
     const result = await detectImage(imageSource, shot.filename, apiUrl, conf);
     if (shot.screenshotId) {
+      if (options.replaceStoredResult) {
+        await clearDetectionResults(shot.screenshotId);
+      }
       await saveDetectionResult(shot.screenshotId, shot.enterpriseId ?? null, result);
     }
     return buildScanDetection(shot, result);
@@ -200,18 +214,18 @@ export default function DetectionPanel({
   const handleRedetect = useCallback(async (detection: ScanDetection) => {
     const shot = screenshots.find(s => isDetectionForScreenshot(detection, s));
     if (!shot) return;
-    if (shot.screenshotId) await clearDetectionResults(shot.screenshotId);
-    const without = detections.filter(d => !isDetectionForScreenshot(d, shot));
-    onDetectionsUpdate(without);
     try {
-      const det = await runDetection(shot);
-      const updated = [...without, det];
+      const det = await runDetection(shot, { replaceStoredResult: true });
+      const updated = upsertDetection(detections, det);
       onDetectionsUpdate(updated);
       if (det.hasCoolingTower) await handlePostDetection([det]);
     } catch (err) {
-      onDetectionsUpdate([...without, makeErrorDet(shot, err)]);
+      setUploadNotice({
+        tone: 'error',
+        message: `重新识别失败：${formatDetectionError(err)}。已保留上一轮识别结果。`,
+      });
     }
-  }, [screenshots, detections, runDetection, makeErrorDet, onDetectionsUpdate, handlePostDetection]);
+  }, [screenshots, detections, runDetection, onDetectionsUpdate, handlePostDetection]);
 
   // ── handleBatchDetect ─────────────────────────────────────────────────────
 
@@ -225,21 +239,28 @@ export default function DetectionPanel({
     setIsDetecting(true);
     shouldStopRef.current = false;
     onStatusChange('detecting');
-    const working: ScanDetection[] = [...detections];
+    let working: ScanDetection[] = [...detections];
     const newTowers: ScanDetection[] = [];
     for (const shot of targets) {
       if (shouldStopRef.current) break;
       const without = working.filter(d => !isDetectionForScreenshot(d, shot));
       try {
-        const det = await runDetection(shot);
+        const det = await runDetection(shot, { replaceStoredResult: without.length !== working.length });
         const idx = working.findIndex(d => isDetectionForScreenshot(d, shot));
         if (idx >= 0) working[idx] = det; else working.push(det);
         if (det.hasCoolingTower) newTowers.push(det);
         onDetectionsUpdate([...working]);
       } catch (err) {
         const errDet = makeErrorDet(shot, err);
-        const idx = working.findIndex(d => isDetectionForScreenshot(d, shot));
-        if (idx >= 0) working[idx] = errDet; else working.push(errDet);
+        const nextWorking = appendErrorDetectionIfMissing(working, shot, errDet);
+        if (nextWorking === working) {
+          setUploadNotice({
+            tone: 'error',
+            message: `识别失败：${formatDetectionError(err)}。已保留已有识别结果。`,
+          });
+        } else {
+          working = nextWorking;
+        }
         onDetectionsUpdate([...working]);
       }
     }
