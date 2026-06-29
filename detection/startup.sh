@@ -21,13 +21,13 @@ if [ ! -f "weights/best.pt" ]; then
     CURL_EXIT=$?
     set -e
     if [ "$CURL_EXIT" != "0" ] || [ "$HTTP_STATUS" != "200" ]; then
-      echo "[startup] WARNING: weights download failed (curl=$CURL_EXIT http=${HTTP_STATUS:-n/a}), running without custom weights"
+      echo "[startup] ERROR: weights download failed (curl=$CURL_EXIT http=${HTTP_STATUS:-n/a})"
       rm -f weights/best.pt
     else
       echo "[startup] Weights downloaded successfully"
     fi
   else
-    echo "[startup] WARNING: missing Supabase env for weight download, running without custom weights"
+    echo "[startup] ERROR: missing Supabase env for weight download"
   fi
 else
   echo "[startup] Using existing weights/best.pt"

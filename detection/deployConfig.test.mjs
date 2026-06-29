@@ -22,3 +22,11 @@ test('startup.sh accepts either service key env name for Supabase weight downloa
   assert.match(startup, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(startup, /SUPABASE_SERVICE_KEY/);
 });
+
+test('startup.sh leaves health endpoint responsible when weights cannot be prepared', () => {
+  const startup = readFileSync(path.join(__dirname, 'startup.sh'), 'utf8');
+
+  assert.match(startup, /weights download failed[\s\S]+rm -f weights\/best\.pt/);
+  assert.doesNotMatch(startup, /weights download failed[\s\S]+exit 1/);
+  assert.doesNotMatch(startup, /missing Supabase env[\s\S]+exit 1/);
+});
