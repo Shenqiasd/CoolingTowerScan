@@ -9,6 +9,7 @@ import type {
   ProjectLeadSnapshot,
   ProjectListItem,
   ProjectRepo,
+  ProjectHvacSurveyWorkspace,
   ProjectSolutionSnapshot,
   ProjectSolutionWorkspace,
   ProjectSurveyWorkspace,
@@ -240,6 +241,30 @@ const INVALID_PROJECT_SURVEY_WORKSPACE: ProjectSurveyWorkspace = {
   },
 };
 
+const PROJECT_HVAC_SURVEY_WORKSPACE: ProjectHvacSurveyWorkspace = {
+  projectId: 'project-1',
+  stations: [
+    {
+      id: 'station-1',
+      projectId: 'project-1',
+      name: '1# 冷冻站',
+      locationLabel: '动力站一层',
+      notes: '一期示范冷站',
+      createdAt: '2026-04-14T09:00:00.000Z',
+      updatedAt: '2026-04-14T09:00:00.000Z',
+    },
+  ],
+  files: [],
+  equipmentAssets: [],
+  operationRecords: [],
+  monthlyProfiles: [],
+  latestEvaluation: null,
+  gateValidation: {
+    canComplete: false,
+    errors: ['approved HVAC equipment is required'],
+  },
+};
+
 const PROJECT_SOLUTION_WORKSPACE: ProjectSolutionWorkspace = {
   projectId: 'project-1',
   technicalAssumptions: {
@@ -442,6 +467,14 @@ describe('project routes', () => {
   afterEach(async () => {
     await app?.close();
     app = undefined;
+  });
+
+  it('keeps the HVAC survey workspace contract explicit', () => {
+    expect(PROJECT_HVAC_SURVEY_WORKSPACE.stations[0]?.name).toBe('1# 冷冻站');
+    expect(PROJECT_HVAC_SURVEY_WORKSPACE.files).toEqual([]);
+    expect(PROJECT_HVAC_SURVEY_WORKSPACE.equipmentAssets).toEqual([]);
+    expect(PROJECT_HVAC_SURVEY_WORKSPACE.monthlyProfiles).toEqual([]);
+    expect(PROJECT_HVAC_SURVEY_WORKSPACE.gateValidation.canComplete).toBe(false);
   });
 
   it('rejects unauthenticated project creation', async () => {

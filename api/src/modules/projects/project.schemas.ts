@@ -245,6 +245,190 @@ export interface UpdateProjectSurveyWorkspaceInput {
   handoffs?: ProjectHandoffItem[];
 }
 
+export const PROJECT_HVAC_DEVICE_TYPES = [
+  'chiller',
+  'chilled_water_pump',
+  'cooling_water_pump',
+  'cooling_tower',
+  'unknown',
+] as const;
+
+export type ProjectHvacDeviceType = typeof PROJECT_HVAC_DEVICE_TYPES[number];
+
+export const PROJECT_SURVEY_FILE_TYPES = [
+  'device_nameplate',
+  'device_ledger',
+  'operation_record',
+  'site_photo',
+  'other',
+] as const;
+
+export type ProjectSurveyFileType = typeof PROJECT_SURVEY_FILE_TYPES[number];
+
+export const PROJECT_SURVEY_EXTRACTION_STATUSES = [
+  'uploaded',
+  'extracting',
+  'needs_review',
+  'reviewed',
+  'failed',
+] as const;
+
+export type ProjectSurveyExtractionStatus = typeof PROJECT_SURVEY_EXTRACTION_STATUSES[number];
+
+export const PROJECT_HVAC_REVIEW_STATUSES = ['pending', 'approved', 'rejected'] as const;
+
+export type ProjectHvacReviewStatus = typeof PROJECT_HVAC_REVIEW_STATUSES[number];
+
+export const PROJECT_HVAC_OPERATION_STRATEGIES = ['full_year', 'partial_year'] as const;
+
+export type ProjectHvacOperationStrategy = typeof PROJECT_HVAC_OPERATION_STRATEGIES[number];
+
+export const PROJECT_HVAC_SAVING_MODES = ['winter', 'balanced', 'summer', 'extreme'] as const;
+
+export type ProjectHvacSavingMode = typeof PROJECT_HVAC_SAVING_MODES[number];
+
+export interface ProjectCoolingStation {
+  id: string;
+  projectId: string;
+  name: string;
+  locationLabel: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectSurveyFile {
+  id: string;
+  projectId: string;
+  stationId: string | null;
+  fileType: ProjectSurveyFileType;
+  fileName: string;
+  storageBucket: string;
+  storagePath: string;
+  mimeType: string;
+  fileSize: number;
+  extractionStatus: ProjectSurveyExtractionStatus;
+  confidence: number | null;
+  errorMessage: string;
+  rawExtraction: Record<string, unknown>;
+  reviewedPayload: Record<string, unknown>;
+  createdBy: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectHvacEquipmentAsset {
+  id: string;
+  projectId: string;
+  stationId: string | null;
+  sourceFileId: string | null;
+  deviceType: ProjectHvacDeviceType;
+  equipmentName: string;
+  brand: string;
+  model: string;
+  quantity: number;
+  ratedPowerKw: number | null;
+  ratedCoolingCapacityKw: number | null;
+  ratedCop: number | null;
+  frequencyHz: number | null;
+  headM: number | null;
+  flowRateM3h: number | null;
+  heatExchangeCapacityKw: number | null;
+  status: ProjectEquipmentStatus;
+  reviewStatus: ProjectHvacReviewStatus;
+  confidence: number | null;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectOperationRecord {
+  id: string;
+  projectId: string;
+  stationId: string | null;
+  sourceFileId: string | null;
+  recordDate: string | null;
+  recordTime: string;
+  shift: string;
+  operatingStatus: string;
+  operatingHours: number | null;
+  unitsOnCount: number | null;
+  operatingCurrentPct: number | null;
+  loadRatePct: number | null;
+  measuredEnergyKwh: number | null;
+  notes: string;
+  reviewStatus: ProjectHvacReviewStatus;
+  confidence: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectEquipmentMonthlyProfile {
+  id: string;
+  projectId: string;
+  equipmentAssetId: string;
+  year: number;
+  month: number;
+  runNum: number;
+  monthDays: number;
+  runDays: number;
+  runDayHours: number;
+  loadRatePct: number;
+  operationStrategy: ProjectHvacOperationStrategy;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectHvacEvaluationResult {
+  yearEnergyBeforeKwh: number;
+  yearEnergyAfterKwh: number;
+  yearSavingEnergyKwh: number;
+  yearSavingCostCny: number;
+  yearSavingRate: number;
+  byDeviceType: Record<string, {
+    energyBeforeKwh: number;
+    energyAfterKwh: number;
+    savingEnergyKwh: number;
+    savingCostCny: number;
+    savingRate: number;
+  }>;
+  monthTrends: Array<{
+    month: number;
+    energyBeforeKwh: number;
+    energyAfterKwh: number;
+    savingEnergyKwh: number;
+    savingCostCny: number;
+  }>;
+}
+
+export interface ProjectHvacEvaluation {
+  id: string;
+  projectId: string;
+  year: number;
+  savingMode: ProjectHvacSavingMode;
+  result: ProjectHvacEvaluationResult;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface ProjectHvacSurveyGateValidation {
+  canComplete: boolean;
+  errors: string[];
+}
+
+export interface ProjectHvacSurveyWorkspace {
+  projectId: string;
+  stations: ProjectCoolingStation[];
+  files: ProjectSurveyFile[];
+  equipmentAssets: ProjectHvacEquipmentAsset[];
+  operationRecords: ProjectOperationRecord[];
+  monthlyProfiles: ProjectEquipmentMonthlyProfile[];
+  latestEvaluation: ProjectHvacEvaluation | null;
+  gateValidation: ProjectHvacSurveyGateValidation;
+}
+
 export interface ProjectSolutionTechnicalAssumptions {
   baselineLoadRt: number | null;
   targetLoadRt: number | null;
