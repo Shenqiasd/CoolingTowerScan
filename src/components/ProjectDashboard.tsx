@@ -6,6 +6,7 @@ import {
   FolderKanban,
   Handshake,
   ListChecks,
+  Loader2,
   Plus,
   Search,
   ShieldAlert,
@@ -19,10 +20,11 @@ import { buildProjectWorkbenchSummary } from '../utils/projectWorkbench';
 interface Props {
   projects: Project[];
   loading: boolean;
+  error?: string | null;
   phaseFilter: SopPhase | '';
   surveyWorkflowView?: SurveyWorkflowView | null;
   onPhaseFilter: (phase: SopPhase | '') => void;
-  onCreateFromEnterprise: () => void;
+  onCreateFromEnterprise: () => void | Promise<void>;
   onSelectProject: (project: Project) => void;
 }
 
@@ -148,6 +150,7 @@ function getSolutionProgressLabel(project: Project) {
 export default function ProjectDashboard({
   projects,
   loading,
+  error = null,
   phaseFilter,
   surveyWorkflowView = null,
   onPhaseFilter,
@@ -155,6 +158,7 @@ export default function ProjectDashboard({
   onSelectProject,
 }: Props) {
   const [search, setSearch] = useState('');
+  const [initializing, setInitializing] = useState(false);
 
   const workbench = useMemo(() => buildProjectWorkbenchSummary(projects), [projects]);
   const phaseCounts = useMemo(() => SOP_PHASES.reduce((acc, phase) => {
@@ -179,6 +183,15 @@ export default function ProjectDashboard({
     ? SURVEY_WORKFLOW_DESCRIPTIONS[surveyWorkflowView]
     : '看项目节奏、待审批、阻塞和待交接项。';
 
+  const handleInitializeProject = async () => {
+    setInitializing(true);
+    try {
+      await onCreateFromEnterprise();
+    } finally {
+      setInitializing(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-slate-950">
       <div className="border-b border-slate-800 px-6 py-4">
@@ -188,11 +201,12 @@ export default function ProjectDashboard({
             <p className="mt-0.5 text-xs text-slate-500">{headerDescription}</p>
           </div>
           <button
-            onClick={onCreateFromEnterprise}
-            className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-500"
+            onClick={handleInitializeProject}
+            disabled={initializing}
+            className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Plus className="h-3.5 w-3.5" />
-            前往项目转化入口
+            {initializing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            初始化踏勘项目
           </button>
         </div>
 
@@ -242,12 +256,25 @@ export default function ProjectDashboard({
       </div>
 
       <div className="flex-1 space-y-2 overflow-y-auto px-6 pb-6">
-        {loading ? (
+        {error ? (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        ) : loading ? (
           <div className="py-12 text-center text-sm text-slate-500">项目加载中...</div>
         ) : filtered.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-800 px-6 py-12 text-center">
             <p className="text-sm text-slate-300">暂无项目</p>
-            <p className="mt-1 text-xs text-slate-500">从已双确认 Lead 创建项目后会出现在这里。</p>
+            <p className="mt-1 text-xs text-slate-500">可从当前已识别企业初始化踏勘项目。</p>
+            <button
+              type="button"
+              onClick={handleInitializeProject}
+              disabled={initializing}
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {initializing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              初始化踏勘项目
+            </button>
           </div>
         ) : (
           filtered.map((project) => {

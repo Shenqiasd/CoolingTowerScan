@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, lazy, Suspense, useEffect, type SetStateAction } from 'react';
-import { Map, List, Loader2 } from 'lucide-react';
+import { useState, useCallback, useRef, lazy, Suspense, useEffect, type FormEvent, type SetStateAction } from 'react';
+import { Map, List, Loader2, Lock, LogOut } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import MapScreenshot from '../../components/screenshot';
 import type { ScreenshotResult } from '../../components/screenshot';
@@ -13,12 +13,15 @@ import type { SidebarView } from '../../components/LifecycleSidebar';
 import DetectionPanel from '../../components/DetectionPanel';
 import ReportModal from '../../components/report/ReportModal';
 import ProjectDashboard from '../../components/ProjectDashboard';
+import SurveyWorkflowPage from '../../components/SurveyWorkflowPage';
 import { useEnterprises } from '../../hooks/useEnterprises';
 import { useMapMarkers } from '../../hooks/useMapMarkers';
 import { useStats } from '../../hooks/useStats';
 import { useDetectionResults } from '../../hooks/useDetectionResults';
 import { useProjects } from '../../hooks/useProjects';
 import { useActiveScanTask } from '../../hooks/useActiveScanTask';
+import { loginWithPassword } from '../../api/auth';
+import { ApiClientError, clearAppAuthToken, getStoredAppAuthToken, storeAppAuthToken } from '../../api/client';
 import CandidateDetailPage from '../../pages/candidates/CandidateDetailPage';
 import CandidateListPage from '../../pages/candidates/CandidateListPage';
 import LeadDetailPage from '../../pages/leads/LeadDetailPage';
@@ -47,6 +50,86 @@ import {
 } from '../../components/discovery/recentTaskListPreference';
 
 const MapView = lazy(() => import('../../components/MapView'));
+
+function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
+  const [username, setUsername] = useState('user');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await loginWithPassword(username, password);
+      storeAppAuthToken(result.token, result.expiresAt);
+      onAuthenticated();
+    } catch (err) {
+      if (err instanceof ApiClientError && err.code === 'APP_AUTH_INVALID_CREDENTIALS') {
+        setError('账号或密码不正确');
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('登录失败');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-950 px-4 text-white">
+      <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+        <div className="mb-6 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-300">
+            <Lock className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-base font-semibold">空调调研智能体平台</h1>
+            <p className="mt-1 text-xs text-slate-500">登录后进入线索发现与踏勘调研工作台</p>
+          </div>
+        </div>
+
+        <label className="mb-3 block">
+          <span className="mb-1.5 block text-xs text-slate-400">账号</span>
+          <input
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition-colors focus:border-emerald-500/60"
+            autoComplete="username"
+          />
+        </label>
+
+        <label className="mb-4 block">
+          <span className="mb-1.5 block text-xs text-slate-400">密码</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition-colors focus:border-emerald-500/60"
+            autoComplete="current-password"
+          />
+        </label>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+            {error}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+          登录
+        </button>
+      </form>
+    </div>
+  );
+}
 
 const DISCOVERY_PATHS: Record<PipelineStep, string> = {
   screenshot: '/discovery/screenshot',
@@ -127,7 +210,7 @@ function readRecentTaskListPreference(): string | null {
   return window.localStorage.getItem(RECENT_TASK_LIST_PREFERENCE_KEY);
 }
 
-export default function AppShell() {
+function AuthenticatedAppShell({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -165,8 +248,10 @@ export default function AppShell() {
   const {
     projects,
     loading: projectsLoading,
+    error: projectsError,
     phaseFilter,
     setPhaseFilter,
+    initializeSurveyProject,
   } = useProjects();
 
   const [resultView, setResultView] = useState<ViewTab>('list');
@@ -310,9 +395,10 @@ export default function AppShell() {
     navigate(DISCOVERY_PATHS[step]);
   }, [navigate]);
 
-  const handleCreateProjectFromEnterprise = useCallback(() => {
-    navigate('/leads');
-  }, [navigate]);
+  const handleCreateProjectFromEnterprise = useCallback(async () => {
+    const project = await initializeSurveyProject();
+    navigate(`/projects/${project.id}`);
+  }, [initializeSurveyProject, navigate]);
 
   useEffect(() => {
     setIsTaskBannerCollapsed(getInitialTaskBannerCollapsed(
@@ -350,7 +436,7 @@ export default function AppShell() {
   }, []);
 
   return (
-    <div className="h-screen flex bg-slate-950 text-white overflow-hidden">
+    <div className="relative h-screen flex bg-slate-950 text-white overflow-hidden">
       <input
         ref={enterpriseFileRef}
         type="file"
@@ -397,15 +483,35 @@ export default function AppShell() {
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
+        <button
+          type="button"
+          onClick={onLogout}
+          className="absolute right-4 top-3 z-20 inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-1.5 text-[11px] text-slate-300 shadow-lg transition-colors hover:border-slate-500 hover:text-white"
+        >
+          <LogOut className="h-3.5 w-3.5" />
+          退出
+        </button>
         {isDashboard ? (
           isProjectDetailView ? (
             <ProjectDetailPage />
+          ) : phaseFilter === 'survey' ? (
+            <SurveyWorkflowPage
+              projects={projects}
+              loading={projectsLoading}
+              error={projectsError}
+              activeModule={getSurveyWorkflowFromSearch(location.search)}
+              onInitializeProject={handleCreateProjectFromEnterprise}
+              onSelectProject={(project) => {
+                navigate(`/projects/${project.id}`);
+              }}
+            />
           ) : (
             <ProjectDashboard
               projects={projects}
               loading={projectsLoading}
+              error={projectsError}
               phaseFilter={phaseFilter}
-              surveyWorkflowView={phaseFilter === 'survey' ? getSurveyWorkflowFromSearch(location.search) : null}
+              surveyWorkflowView={null}
               onPhaseFilter={handleProjectPhaseFilter}
               onCreateFromEnterprise={handleCreateProjectFromEnterprise}
               onSelectProject={(project) => {
@@ -551,4 +657,19 @@ export default function AppShell() {
       )}
     </div>
   );
+}
+
+export default function AppShell() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(getStoredAppAuthToken()));
+
+  const handleLogout = useCallback(() => {
+    clearAppAuthToken();
+    setIsAuthenticated(false);
+  }, []);
+
+  if (!isAuthenticated) {
+    return <LoginScreen onAuthenticated={() => setIsAuthenticated(true)} />;
+  }
+
+  return <AuthenticatedAppShell onLogout={handleLogout} />;
 }

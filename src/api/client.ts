@@ -1,6 +1,8 @@
 import { supabase } from '../lib/supabase';
 
 const DEFAULT_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim();
+const APP_AUTH_TOKEN_KEY = 'coolingTowerScan.appAuthToken';
+const APP_AUTH_EXPIRES_AT_KEY = 'coolingTowerScan.appAuthExpiresAt';
 
 export class ApiClientError extends Error {
   status: number;
@@ -20,6 +22,40 @@ export function getApiBaseUrl() {
   return DEFAULT_API_BASE_URL;
 }
 
+export function getStoredAppAuthToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const token = window.localStorage.getItem(APP_AUTH_TOKEN_KEY);
+  const expiresAt = Number(window.localStorage.getItem(APP_AUTH_EXPIRES_AT_KEY) ?? 0);
+  if (!token || !Number.isFinite(expiresAt) || expiresAt * 1000 <= Date.now()) {
+    window.localStorage.removeItem(APP_AUTH_TOKEN_KEY);
+    window.localStorage.removeItem(APP_AUTH_EXPIRES_AT_KEY);
+    return null;
+  }
+
+  return token;
+}
+
+export function storeAppAuthToken(token: string, expiresAt: number) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(APP_AUTH_TOKEN_KEY, token);
+  window.localStorage.setItem(APP_AUTH_EXPIRES_AT_KEY, String(expiresAt));
+}
+
+export function clearAppAuthToken() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.removeItem(APP_AUTH_TOKEN_KEY);
+  window.localStorage.removeItem(APP_AUTH_EXPIRES_AT_KEY);
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const baseUrl = getApiBaseUrl();
   if (!baseUrl) {
@@ -32,13 +68,20 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     headers.set('Content-Type', 'application/json');
   }
 
-  try {
-    const { data } = await supabase.auth.getSession();
-    if (data.session?.access_token && !headers.has('Authorization')) {
-      headers.set('Authorization', `Bearer ${data.session.access_token}`);
+  const appAuthToken = getStoredAppAuthToken();
+  if (appAuthToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${appAuthToken}`);
+  }
+
+  if (!headers.has('Authorization')) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data.session?.access_token) {
+        headers.set('Authorization', `Bearer ${data.session.access_token}`);
+      }
+    } catch {
+      // Leave auth unset when no Supabase session is available.
     }
-  } catch {
-    // Leave auth unset when no Supabase session is available.
   }
 
   const response = await fetch(new URL(path, `${baseUrl}/`).toString(), {

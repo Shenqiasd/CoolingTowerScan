@@ -82,6 +82,16 @@ export class ProjectService {
     return item;
   }
 
+  async createSurveyProjectFromEnterprise(enterpriseId: string | undefined, actorUserId: string) {
+    const normalizedEnterpriseId = enterpriseId?.trim() || undefined;
+    const item = await this.repo.createSurveyProjectFromEnterprise(normalizedEnterpriseId, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'ENTERPRISE_PROJECT_SOURCE_NOT_FOUND', 'No enterprise is available to initialize a survey project.');
+    }
+
+    return item;
+  }
+
   async listProjects() {
     return this.repo.listProjects();
   }

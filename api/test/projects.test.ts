@@ -25,6 +25,10 @@ const TEST_ENV: AppEnv = {
   supabaseUrl: 'https://example.supabase.co',
   supabaseServiceRoleKey: 'service-role-key',
   supabaseJwtSecret: 'test-jwt-secret',
+  appAccessUsername: null,
+  appAccessPassword: null,
+  appJwtSecret: null,
+  appAuthUserId: '11111111-1111-4111-8111-111111111111',
 };
 
 const QUALIFIED_LEAD: ProjectLeadSnapshot = {

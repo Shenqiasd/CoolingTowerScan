@@ -549,6 +549,7 @@ export interface ProjectRepo {
   getProjectByLeadId(leadId: string): Promise<ProjectDetail | null>;
   getProjectById(projectId: string): Promise<ProjectDetail | null>;
   createProjectFromLead(leadId: string, name: string, actorUserId: string): Promise<ProjectDetail | null>;
+  createSurveyProjectFromEnterprise(enterpriseId: string | undefined, actorUserId: string): Promise<ProjectDetail | null>;
   listProjects(filters?: ProjectListFilters): Promise<ProjectListItem[]>;
   updateProject(projectId: string, input: UpdateProjectInput, actorUserId: string): Promise<ProjectDetail | null>;
   updateProjectStage(

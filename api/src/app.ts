@@ -13,6 +13,7 @@ import { authPlugin } from './plugins/auth.js';
 import { errorsPlugin } from './plugins/errors.js';
 import { supabasePlugin } from './plugins/supabase.js';
 import { registerCandidateRoutes } from './routes/candidates.js';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerBootstrapRoute } from './routes/bootstrap.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerLeadRoutes } from './routes/leads.js';
@@ -51,6 +52,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.register(authPlugin);
   app.register(auditPlugin);
   registerHealthRoute(app);
+  registerAuthRoutes(app);
   registerBootstrapRoute(app);
   app.register(async (instance) => {
     instance.decorate(

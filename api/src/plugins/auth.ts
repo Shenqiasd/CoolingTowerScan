@@ -18,6 +18,12 @@ const UNAUTHENTICATED_AUTH: AuthContext = {
   token: null,
 };
 
+export const APP_JWT_ISSUER = 'cooling-tower-scan-api';
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 declare module 'fastify' {
   interface FastifyRequest {
     _authContext?: AuthContext;
@@ -49,6 +55,25 @@ async function buildAuthContext(
   const token = getBearerToken(authorization);
   if (!token) {
     return { ...UNAUTHENTICATED_AUTH };
+  }
+
+  if (app.appEnv.appJwtSecret) {
+    try {
+      const { payload } = await jwtVerify(token, new TextEncoder().encode(app.appEnv.appJwtSecret), {
+        issuer: APP_JWT_ISSUER,
+      });
+      const userId = typeof payload.sub === 'string' ? payload.sub : null;
+      if (userId && isUuid(userId)) {
+        return {
+          userId,
+          role: typeof payload.role === 'string' ? payload.role : 'authenticated',
+          isAuthenticated: true,
+          token,
+        };
+      }
+    } catch {
+      // Fall through to Supabase token validation.
+    }
   }
 
   const secret = app.appEnv.supabaseJwtSecret;

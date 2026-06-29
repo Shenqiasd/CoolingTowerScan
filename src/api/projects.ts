@@ -1224,6 +1224,14 @@ export async function createProject(input: { leadId: string; name?: string }) {
   return mapProjectListItem(response.item);
 }
 
+export async function createSurveyProjectFromEnterprise(enterpriseId?: string) {
+  const response = await apiRequest<{ item: RawProjectItem }>('/v1/projects/survey-bootstrap', {
+    method: 'POST',
+    body: JSON.stringify({ enterpriseId }),
+  });
+  return mapProjectListItem(response.item);
+}
+
 export async function getProjectDetail(projectId: string): Promise<ProjectDetailData> {
   const response = await apiRequest<{ item: RawProjectItem }>(`/v1/projects/${projectId}`);
   return mapProjectDetail(response.item);

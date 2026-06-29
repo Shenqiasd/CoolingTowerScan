@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
 import {
+  createSurveyProjectFromEnterprise,
   listProjects,
   type ProjectListItem,
 } from '../api/projects';
@@ -60,15 +61,18 @@ function mapProject(item: ProjectListItem): Project {
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [phaseFilter, setPhaseFilter] = useState<SopPhase | ''>('');
 
   const fetch = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const items = await listProjects(phaseFilter);
       setProjects(items.map(mapProject));
-    } catch {
+    } catch (err) {
       setProjects([]);
+      setError(err instanceof Error ? err.message : '项目加载失败');
     } finally {
       setLoading(false);
     }
@@ -90,14 +94,32 @@ export function useProjects() {
     throw new Error(`Project updates must go through the API: ${projectId}:${JSON.stringify(updates)}`);
   }, []);
 
+  const initializeSurveyProject = useCallback(async (enterpriseId?: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const item = await createSurveyProjectFromEnterprise(enterpriseId);
+      await fetch();
+      return mapProject(item);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '踏勘项目初始化失败';
+      setError(message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetch]);
+
   return {
     projects,
     loading,
+    error,
     phaseFilter,
     setPhaseFilter,
     refresh: fetch,
     createFromEnterprise,
     updatePhase,
     updateProject,
+    initializeSurveyProject,
   };
 }

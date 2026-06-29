@@ -785,6 +785,17 @@ export function registerProjectRoutes(app: FastifyInstance) {
       return { item };
     });
 
+    instance.post('/v1/projects/survey-bootstrap', async (request) => {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const enterpriseId = typeof body.enterpriseId === 'string' ? body.enterpriseId : undefined;
+      const item = await service.createSurveyProjectFromEnterprise(
+        enterpriseId,
+        request.auth.userId ?? '',
+      );
+
+      return { item };
+    });
+
     instance.get('/v1/projects', async (request) => {
       const query = (request.query ?? {}) as Record<string, unknown>;
       const phase = parsePhase(query.phase);

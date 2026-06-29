@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 
 import type {
   ProjectAuditLogItem,
@@ -98,6 +99,26 @@ type ProjectRow = {
   created_at: string;
   updated_at: string;
   project_stage_states?: ProjectStageRow[] | null;
+};
+
+type EnterpriseProjectSourceRow = {
+  id: string;
+  enterprise_name: string | null;
+  address: string | null;
+  industry_category: string | null;
+  composite_score: number | string | null;
+  probability_level: string | null;
+  has_cooling_tower: boolean | null;
+  cooling_tower_count: number | string | null;
+  detection_confidence: number | string | null;
+  total_cooling_capacity_rt: number | string | null;
+  cooling_station_rated_power_kw: number | string | null;
+  longitude: number | string | null;
+  latitude: number | string | null;
+};
+
+type SiteRow = {
+  id: string;
 };
 
 type AuditRow = {
@@ -270,6 +291,55 @@ type HvacSavingModeConfigRow = {
   rate12: number | string;
 };
 
+const HVAC_DEVICE_TYPES_FOR_SAVING: Array<Exclude<ProjectHvacDeviceType, 'unknown'>> = [
+  'chiller',
+  'chilled_water_pump',
+  'cooling_water_pump',
+  'cooling_tower',
+];
+
+const DEFAULT_SAVING_BASES: Record<ProjectHvacSavingMode, Record<Exclude<ProjectHvacDeviceType, 'unknown'>, number>> = {
+  winter: {
+    chiller: 0.08,
+    chilled_water_pump: 0.06,
+    cooling_water_pump: 0.06,
+    cooling_tower: 0.07,
+  },
+  balanced: {
+    chiller: 0.08,
+    chilled_water_pump: 0.06,
+    cooling_water_pump: 0.06,
+    cooling_tower: 0.07,
+  },
+  summer: {
+    chiller: 0.08,
+    chilled_water_pump: 0.06,
+    cooling_water_pump: 0.06,
+    cooling_tower: 0.07,
+  },
+  extreme: {
+    chiller: 0.10,
+    chilled_water_pump: 0.08,
+    cooling_water_pump: 0.08,
+    cooling_tower: 0.09,
+  },
+};
+
+const DEFAULT_MONTHLY_RATES: Record<ProjectHvacSavingMode, HvacSavingModeConfig['monthlyRates']> = {
+  winter: [1.20, 1.20, 1.05, 0.90, 0.80, 0.75, 0.70, 0.70, 0.80, 0.95, 1.15, 1.20],
+  balanced: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  summer: [0.70, 0.70, 0.80, 0.95, 1.10, 1.20, 1.25, 1.25, 1.10, 0.95, 0.80, 0.70],
+  extreme: [1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10, 1.10],
+};
+
+function getDefaultSavingModeConfigs(savingMode: ProjectHvacSavingMode): HvacSavingModeConfig[] {
+  return HVAC_DEVICE_TYPES_FOR_SAVING.map((deviceType) => ({
+    deviceType,
+    avgBase: DEFAULT_SAVING_BASES[savingMode][deviceType],
+    monthlyRates: DEFAULT_MONTHLY_RATES[savingMode],
+  }));
+}
+
 type SolutionSnapshotRow = {
   id: string;
   project_id: string;
@@ -312,6 +382,10 @@ const PROJECT_SELECT = `
 
 function generateProjectCode() {
   return `PROJ-${Date.now()}`;
+}
+
+function generateSiteCode() {
+  return `SITE-${Date.now()}`;
 }
 
 function parseNumber(value: number | string | null | undefined) {
@@ -856,6 +930,102 @@ function mapHvacSavingModeConfig(row: HvacSavingModeConfigRow): HvacSavingModeCo
   };
 }
 
+function isMissingRelationError(error: unknown) {
+  const value = error as { code?: unknown; message?: unknown } | null;
+  return value?.code === 'PGRST205'
+    || (typeof value?.message === 'string' && value.message.includes('schema cache'));
+}
+
+function getRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function getTypedArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+
+function getStoredHvacWorkspace(phaseData: Record<string, unknown> | null | undefined) {
+  const surveyPhase = getPhaseDataValue(phaseData, 'survey');
+  return getRecord(surveyPhase.hvacWorkspace);
+}
+
+function getFallbackHvacEvaluation(
+  phaseData: Record<string, unknown> | null | undefined,
+): ProjectHvacEvaluation | null {
+  const workspace = getStoredHvacWorkspace(phaseData);
+  const evaluation = getRecord(workspace.latestEvaluation);
+  return typeof evaluation.id === 'string'
+    ? evaluation as unknown as ProjectHvacEvaluation
+    : null;
+}
+
+function buildFallbackHvacWorkspace(
+  project: ProjectRow,
+  dataGaps: ProjectDataGapItem[] = [],
+  handoffs: ProjectHandoffItem[] = [],
+): ProjectHvacSurveyWorkspace {
+  const workspace = getStoredHvacWorkspace(project.phase_data);
+  const stations = getTypedArray<ProjectCoolingStation>(workspace.stations);
+  const files = getTypedArray<ProjectSurveyFile>(workspace.files);
+  const equipmentAssets = getTypedArray<ProjectHvacEquipmentAsset>(workspace.equipmentAssets);
+  const operationRecords = getTypedArray<ProjectOperationRecord>(workspace.operationRecords);
+  const monthlyProfiles = getTypedArray<ProjectEquipmentMonthlyProfile>(workspace.monthlyProfiles);
+  const latestEvaluation = getFallbackHvacEvaluation(project.phase_data);
+  const gateValidation = buildHvacSurveyGateValidation({
+    infoCollection: getSurveyInfoCollection(project.phase_data),
+    surveyRecord: getSurveyRecord(project.phase_data),
+    stations,
+    equipmentAssets,
+    monthlyProfiles,
+    dataGaps,
+    handoffs,
+  });
+
+  return {
+    projectId: project.id,
+    stations,
+    files,
+    equipmentAssets,
+    operationRecords,
+    monthlyProfiles,
+    latestEvaluation,
+    gateValidation,
+  };
+}
+
+async function updateFallbackHvacWorkspace(
+  supabaseAdmin: SupabaseClient,
+  project: ProjectRow,
+  nextWorkspace: ProjectHvacSurveyWorkspace,
+) {
+  const surveyPhase = getPhaseDataValue(project.phase_data, 'survey');
+  const phaseData = {
+    ...(project.phase_data ?? {}),
+    survey: {
+      ...surveyPhase,
+      hvacWorkspace: {
+        stations: nextWorkspace.stations,
+        files: nextWorkspace.files,
+        equipmentAssets: nextWorkspace.equipmentAssets,
+        operationRecords: nextWorkspace.operationRecords,
+        monthlyProfiles: nextWorkspace.monthlyProfiles,
+        latestEvaluation: nextWorkspace.latestEvaluation,
+      },
+    },
+  };
+
+  const { error } = await supabaseAdmin
+    .from('projects')
+    .update({ phase_data: phaseData })
+    .eq('id', project.id);
+
+  if (error) {
+    throw error;
+  }
+}
+
 function mapSolutionSnapshot(row: SolutionSnapshotRow): ProjectSolutionSnapshot {
   const calculation = row.calculation_summary ?? {};
   const readCalculationNumber = (key: keyof ProjectSolutionCalculationSummary) => {
@@ -1167,6 +1337,147 @@ async function getProjectRow(
   return data as ProjectRow | null;
 }
 
+async function getExistingProjectByEnterprise(
+  supabaseAdmin: SupabaseClient,
+  enterpriseId: string,
+): Promise<ProjectRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from('projects')
+    .select(PROJECT_SELECT)
+    .eq('enterprise_id', enterpriseId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as ProjectRow | null;
+}
+
+async function getEnterpriseProjectSource(
+  supabaseAdmin: SupabaseClient,
+  enterpriseId: string | undefined,
+): Promise<EnterpriseProjectSourceRow | null> {
+  let query = supabaseAdmin
+    .from('enterprises')
+    .select(`
+      id,
+      enterprise_name,
+      address,
+      industry_category,
+      composite_score,
+      probability_level,
+      has_cooling_tower,
+      cooling_tower_count,
+      detection_confidence,
+      total_cooling_capacity_rt,
+      cooling_station_rated_power_kw,
+      longitude,
+      latitude
+    `);
+
+  if (enterpriseId) {
+    query = query.eq('id', enterpriseId);
+  } else {
+    query = query
+      .order('has_cooling_tower', { ascending: false })
+      .order('composite_score', { ascending: false })
+      .order('updated_at', { ascending: false });
+  }
+
+  const { data, error } = await query.limit(1).maybeSingle();
+  if (error) {
+    throw error;
+  }
+
+  return data as EnterpriseProjectSourceRow | null;
+}
+
+async function ensurePrimarySite(
+  supabaseAdmin: SupabaseClient,
+  enterprise: EnterpriseProjectSourceRow,
+): Promise<string | null> {
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from('sites')
+    .select('id')
+    .eq('enterprise_id', enterprise.id)
+    .eq('is_primary', true)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    throw existingError;
+  }
+
+  if ((existing as SiteRow | null)?.id) {
+    return (existing as SiteRow).id;
+  }
+
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from('sites')
+    .insert({
+      enterprise_id: enterprise.id,
+      site_name: enterprise.enterprise_name || '默认站点',
+      site_code: generateSiteCode(),
+      address: enterprise.address ?? '',
+      normalized_address: enterprise.address ?? '',
+      longitude_gcj02: enterprise.longitude,
+      latitude_gcj02: enterprise.latitude,
+      coordinate_status: enterprise.longitude && enterprise.latitude ? 'success' : 'pending',
+      coordinate_source: 'import',
+      is_primary: true,
+      metadata: {
+        initializedFrom: 'survey-bootstrap',
+      },
+    })
+    .select('id')
+    .maybeSingle();
+
+  if (insertError) {
+    throw insertError;
+  }
+
+  return (inserted as SiteRow | null)?.id ?? null;
+}
+
+async function initializeProjectStages(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  actorUserId: string,
+) {
+  const timestamp = new Date().toISOString();
+  const { error } = await supabaseAdmin
+    .from('project_stage_states')
+    .upsert(
+      PROJECT_STAGE_CODES.map((stageCode) => {
+        const completed = stageCode === 'prospecting' || stageCode === 'qualification';
+        const active = stageCode === 'survey';
+        return {
+          project_id: projectId,
+          stage_code: stageCode,
+          status: completed ? 'completed' : active ? 'in_progress' : 'not_started',
+          entered_at: completed || active ? timestamp : null,
+          completed_at: completed ? timestamp : null,
+          blockers: [],
+          gate_snapshot: {
+            initializedBy: actorUserId,
+            initializedFrom: 'survey-bootstrap',
+          },
+        };
+      }),
+      {
+        onConflict: 'project_id,stage_code',
+        ignoreDuplicates: false,
+      },
+    );
+
+  if (error) {
+    throw error;
+  }
+}
+
 async function getProjectById(
   supabaseAdmin: SupabaseClient,
   projectId: string,
@@ -1395,25 +1706,42 @@ async function getProjectHvacSurveyWorkspace(
     return null;
   }
 
-  const [
-    stations,
-    files,
-    equipmentAssets,
-    operationRecords,
-    monthlyProfiles,
-    latestEvaluation,
-    dataGaps,
-    handoffs,
-  ] = await Promise.all([
-    getCoolingStationRows(supabaseAdmin, projectId),
-    getSurveyFileRows(supabaseAdmin, projectId),
-    getHvacEquipmentAssetRows(supabaseAdmin, projectId),
-    getOperationRecordRows(supabaseAdmin, projectId),
-    getEquipmentMonthlyProfileRows(supabaseAdmin, projectId),
-    getLatestHvacEvaluation(supabaseAdmin, projectId),
-    getDataGapRows(supabaseAdmin, projectId),
-    getHandoffRows(supabaseAdmin, projectId),
-  ]);
+  let stations: ProjectCoolingStation[];
+  let files: ProjectSurveyFile[];
+  let equipmentAssets: ProjectHvacEquipmentAsset[];
+  let operationRecords: ProjectOperationRecord[];
+  let monthlyProfiles: ProjectEquipmentMonthlyProfile[];
+  let latestEvaluation: ProjectHvacEvaluation | null;
+  let dataGaps: ProjectDataGapItem[];
+  let handoffs: ProjectHandoffItem[];
+
+  try {
+    [
+      stations,
+      files,
+      equipmentAssets,
+      operationRecords,
+      monthlyProfiles,
+      latestEvaluation,
+      dataGaps,
+      handoffs,
+    ] = await Promise.all([
+      getCoolingStationRows(supabaseAdmin, projectId),
+      getSurveyFileRows(supabaseAdmin, projectId),
+      getHvacEquipmentAssetRows(supabaseAdmin, projectId),
+      getOperationRecordRows(supabaseAdmin, projectId),
+      getEquipmentMonthlyProfileRows(supabaseAdmin, projectId),
+      getLatestHvacEvaluation(supabaseAdmin, projectId),
+      getDataGapRows(supabaseAdmin, projectId),
+      getHandoffRows(supabaseAdmin, projectId),
+    ]);
+  } catch (error) {
+    if (!isMissingRelationError(error)) {
+      throw error;
+    }
+
+    return buildFallbackHvacWorkspace(project);
+  }
 
   const gateValidation = buildHvacSurveyGateValidation({
     infoCollection: getSurveyInfoCollection(project.phase_data),
@@ -1485,7 +1813,15 @@ async function getProjectSolutionWorkspace(
   const assumptions = getSolutionTechnicalAssumptions(project.phase_data);
   const commercialBranching = getSolutionCommercialBranching(project.phase_data);
   const commercialFreezeApproval = getSolutionFreezeApproval(project.phase_data);
-  const latestHvacEvaluation = await getLatestHvacEvaluation(supabaseAdmin, projectId);
+  let latestHvacEvaluation: ProjectHvacEvaluation | null;
+  try {
+    latestHvacEvaluation = await getLatestHvacEvaluation(supabaseAdmin, projectId);
+  } catch (error) {
+    if (!isMissingRelationError(error)) {
+      throw error;
+    }
+    latestHvacEvaluation = getFallbackHvacEvaluation(project.phase_data);
+  }
   const hvacCalculation = buildSolutionCalculationSummaryFromHvacEvaluation(latestHvacEvaluation);
   const fallbackCalculation = getSolutionCalculationSummary(assumptions);
   const calculationSummary = hvacCalculation.calculationSummary ?? fallbackCalculation.calculationSummary;
@@ -1718,10 +2054,14 @@ async function getSavingModeConfigs(
     .eq('saving_mode', savingMode);
 
   if (error) {
+    if (isMissingRelationError(error)) {
+      return getDefaultSavingModeConfigs(savingMode);
+    }
     throw error;
   }
 
-  return (data ?? []).map((item) => mapHvacSavingModeConfig(item as HvacSavingModeConfigRow));
+  const items = (data ?? []).map((item) => mapHvacSavingModeConfig(item as HvacSavingModeConfigRow));
+  return items.length > 0 ? items : getDefaultSavingModeConfigs(savingMode);
 }
 
 async function upsertCoolingStationRecord(
@@ -2032,6 +2372,98 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
       return getProjectById(supabaseAdmin, projectData.id);
     },
 
+    async createSurveyProjectFromEnterprise(enterpriseId, actorUserId) {
+      const enterprise = await getEnterpriseProjectSource(supabaseAdmin, enterpriseId?.trim() || undefined);
+      if (!enterprise) {
+        return null;
+      }
+
+      const existing = await getExistingProjectByEnterprise(supabaseAdmin, enterprise.id);
+      if (existing) {
+        return mapProject(existing);
+      }
+
+      const siteId = await ensurePrimarySite(supabaseAdmin, enterprise);
+      const phaseData = {
+        prospecting: {
+          hasCoolingTower: enterprise.has_cooling_tower ?? false,
+          coolingTowerCount: parseNumber(enterprise.cooling_tower_count),
+          detectionConfidence: parseNumber(enterprise.detection_confidence),
+          totalCoolingCapacityRt: parseNumber(enterprise.total_cooling_capacity_rt),
+          coolingStationRatedPowerKw: parseNumber(enterprise.cooling_station_rated_power_kw),
+          probabilityLevel: enterprise.probability_level ?? '',
+          compositeScore: parseNumber(enterprise.composite_score),
+          industryCategory: enterprise.industry_category ?? '',
+          source: 'enterprise-discovery',
+        },
+        qualification: {
+          status: 'imported_from_discovery',
+        },
+        survey: {
+          infoCollection: {
+            siteContactName: '',
+            siteContactPhone: '',
+            siteAccessWindow: '',
+            operatingSchedule: '',
+            coolingSystemType: '',
+            powerAccessStatus: '',
+            waterTreatmentStatus: '',
+            notes: enterprise.address ? `企业地址：${enterprise.address}` : '',
+          },
+          surveyRecord: {
+            surveyDate: '',
+            surveyOwnerUserId: actorUserId,
+            participantNames: [],
+            onSiteFindings: '',
+            loadProfileSummary: '',
+            retrofitConstraints: '',
+            nextActions: '补充冷冻站、设备台账和运行记录后执行能效评估。',
+          },
+          riskSummary: '',
+        },
+        proposal: {},
+        bidding: {},
+        execution: {},
+        commissioning: {},
+        operations: {},
+      };
+
+      const { data, error } = await supabaseAdmin
+        .from('projects')
+        .insert({
+          project_code: generateProjectCode(),
+          lead_id: null,
+          enterprise_id: enterprise.id,
+          site_id: siteId,
+          name: enterprise.enterprise_name || '未命名踏勘项目',
+          current_phase: 'survey',
+          workflow_status: 'active',
+          status: 'active',
+          priority: enterprise.has_cooling_tower ? 'high' : 'medium',
+          assigned_to: actorUserId,
+          opportunity_score: parseNumber(enterprise.composite_score),
+          phase_data: phaseData,
+        })
+        .select('id')
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.id) {
+        return null;
+      }
+
+      await initializeProjectStages(supabaseAdmin, data.id, actorUserId);
+      await insertProjectAuditLog(supabaseAdmin, data.id, 'project.survey_bootstrapped', actorUserId, {
+        enterpriseId: enterprise.id,
+        siteId,
+      });
+
+      return getProjectById(supabaseAdmin, data.id);
+    },
+
     async listProjects(filters: ProjectListFilters = {}) {
       let query = supabaseAdmin
         .from('projects')
@@ -2223,7 +2655,33 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
         return null;
       }
 
-      await upsertCoolingStationRecord(supabaseAdmin, projectId, input);
+      try {
+        await upsertCoolingStationRecord(supabaseAdmin, projectId, input);
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+        validateCoolingStationInput(input);
+        const now = new Date().toISOString();
+        const workspace = buildFallbackHvacWorkspace(existing);
+        const stationId = input.id || randomUUID();
+        const nextStation: ProjectCoolingStation = {
+          id: stationId,
+          projectId,
+          name: input.name.trim(),
+          locationLabel: input.locationLabel?.trim() ?? '',
+          notes: input.notes?.trim() ?? '',
+          createdAt: workspace.stations.find((station) => station.id === stationId)?.createdAt ?? now,
+          updatedAt: now,
+        };
+        await updateFallbackHvacWorkspace(supabaseAdmin, existing, {
+          ...workspace,
+          stations: [
+            ...workspace.stations.filter((station) => station.id !== stationId),
+            nextStation,
+          ],
+        });
+      }
       await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.station.upserted', actorUserId, {
         stationId: input.id ?? null,
         name: input.name,
@@ -2245,7 +2703,20 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
         .eq('project_id', projectId);
 
       if (error) {
-        throw error;
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+        const workspace = buildFallbackHvacWorkspace(existing);
+        await updateFallbackHvacWorkspace(supabaseAdmin, existing, {
+          ...workspace,
+          stations: workspace.stations.filter((station) => station.id !== stationId),
+          equipmentAssets: workspace.equipmentAssets.map((asset) => (
+            asset.stationId === stationId ? { ...asset, stationId: null } : asset
+          )),
+          operationRecords: workspace.operationRecords.map((record) => (
+            record.stationId === stationId ? { ...record, stationId: null } : record
+          )),
+        });
       }
 
       await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.station.deleted', actorUserId, {
@@ -2261,7 +2732,19 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
         return null;
       }
 
-      await replaceHvacEquipmentAssets(supabaseAdmin, projectId, input);
+      try {
+        await replaceHvacEquipmentAssets(supabaseAdmin, projectId, input);
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+        validateHvacEquipmentAssets(input);
+        const workspace = buildFallbackHvacWorkspace(existing);
+        await updateFallbackHvacWorkspace(supabaseAdmin, existing, {
+          ...workspace,
+          equipmentAssets: input,
+        });
+      }
       await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.equipment.updated', actorUserId, {
         count: input.length,
       });
@@ -2275,7 +2758,19 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
         return null;
       }
 
-      await replaceProjectMonthlyProfiles(supabaseAdmin, projectId, input);
+      try {
+        await replaceProjectMonthlyProfiles(supabaseAdmin, projectId, input);
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+        validateMonthlyProfiles(input);
+        const workspace = buildFallbackHvacWorkspace(existing);
+        await updateFallbackHvacWorkspace(supabaseAdmin, existing, {
+          ...workspace,
+          monthlyProfiles: input,
+        });
+      }
       await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.monthlyProfiles.replaced', actorUserId, {
         count: input.length,
       });
@@ -2289,7 +2784,53 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
         return null;
       }
 
-      await insertHvacEvaluationRecord(supabaseAdmin, projectId, input, actorUserId);
+      try {
+        await insertHvacEvaluationRecord(supabaseAdmin, projectId, input, actorUserId);
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+        const electricityPricePerKwh = input.electricityPricePerKwh
+          ?? getSolutionTechnicalAssumptions(existing.phase_data).electricityPricePerKwh
+          ?? 0;
+        if (electricityPricePerKwh <= 0) {
+          throw new Error('electricityPricePerKwh must be greater than 0');
+        }
+        const workspace = buildFallbackHvacWorkspace(existing);
+        const result = calculateHvacEvaluation({
+          electricityPricePerKwh,
+          equipmentAssets: workspace.equipmentAssets
+            .filter((asset) => asset.reviewStatus === 'approved')
+            .map((asset) => ({
+              id: asset.id,
+              deviceType: asset.deviceType,
+              ratedPowerKw: asset.ratedPowerKw,
+            })),
+          monthlyProfiles: workspace.monthlyProfiles
+            .filter((profile) => profile.year === input.year)
+            .map((profile) => ({
+              equipmentAssetId: profile.equipmentAssetId,
+              month: profile.month,
+              runNum: profile.runNum,
+              runDays: profile.runDays,
+              runDayHours: profile.runDayHours,
+              loadRatePct: profile.loadRatePct,
+            })),
+          savingConfigs: getDefaultSavingModeConfigs(input.savingMode),
+        });
+        await updateFallbackHvacWorkspace(supabaseAdmin, existing, {
+          ...workspace,
+          latestEvaluation: {
+            id: randomUUID(),
+            projectId,
+            year: input.year,
+            savingMode: input.savingMode,
+            result,
+            createdBy: actorUserId || null,
+            createdAt: new Date().toISOString(),
+          },
+        });
+      }
       await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.evaluation.run', actorUserId, {
         year: input.year,
         savingMode: input.savingMode,

@@ -4,6 +4,10 @@ export interface AppEnv {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   supabaseJwtSecret: string | null;
+  appAccessUsername: string | null;
+  appAccessPassword: string | null;
+  appJwtSecret: string | null;
+  appAuthUserId: string;
 }
 
 function parsePort(rawPort: string | undefined): number {
@@ -38,5 +42,9 @@ export function loadEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
       'SUPABASE_SERVICE_ROLE_KEY',
     ),
     supabaseJwtSecret: env.SUPABASE_JWT_SECRET?.trim() || null,
+    appAccessUsername: env.APP_ACCESS_USERNAME?.trim() || null,
+    appAccessPassword: env.APP_ACCESS_PASSWORD?.trim() || null,
+    appJwtSecret: env.APP_JWT_SECRET?.trim() || null,
+    appAuthUserId: env.APP_AUTH_USER_ID?.trim() || '11111111-1111-4111-8111-111111111111',
   };
 }
