@@ -2,7 +2,13 @@ import { useState, useCallback, useRef, useEffect, type SetStateAction } from 'r
 import { Radar, Play, Square, CheckCircle2, X, Settings2 } from 'lucide-react';
 import type { CaptureResult, ScanDetection, DetectionFilters } from '../types/pipeline';
 import { supabase } from '../lib/supabase';
-import { detectImage, getDetectionApiUrl, setDetectionApiUrl, checkHealth } from '../utils/detectionApi';
+import {
+  detectImage,
+  getDetectionApiUrl,
+  getHealthStatus,
+  setDetectionApiUrl,
+  type DetectionHealthStatus,
+} from '../utils/detectionApi';
 import { saveDetectionResult, clearDetectionResults } from '../utils/detectionPersistence';
 import { useScreenshotFilters, DEFAULT_FILTERS } from '../hooks/useScreenshotFilters';
 import { useAnnotatedUpload } from '../hooks/useAnnotatedUpload';
@@ -72,7 +78,7 @@ export default function DetectionPanel({
 }: Props) {
   const [apiUrl, setApiUrl] = useState(getDetectionApiUrl);
   const [showSettings, setShowSettings] = useState(false);
-  const [apiHealthy, setApiHealthy] = useState<boolean | null>(null);
+  const [apiHealth, setApiHealth] = useState<DetectionHealthStatus | null>(null);
   const [conf, setConf] = useState<number>(loadConf);
   const [isDetecting, setIsDetecting] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
@@ -94,7 +100,7 @@ export default function DetectionPanel({
   }, [onDetectionsUpdate]);
 
   const handleCheckHealth = useCallback(async () => {
-    setApiHealthy(await checkHealth(apiUrl));
+    setApiHealth(await getHealthStatus(apiUrl));
   }, [apiUrl]);
 
   const handleSaveApiUrl = useCallback(() => {
@@ -151,6 +157,10 @@ export default function DetectionPanel({
 
   const handleDetect = useCallback(async () => {
     if (screenshots.length === 0) return;
+    if (apiHealth?.ok === false) {
+      setUploadNotice({ tone: 'error', message: `检测服务不可用：${apiHealth.message}` });
+      return;
+    }
     setIsDetecting(true);
     setShowBanner(false);
     shouldStopRef.current = false;
@@ -179,7 +189,7 @@ export default function DetectionPanel({
     } else {
       onStatusChange('idle');
     }
-  }, [screenshots, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
+  }, [screenshots, apiHealth, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
 
   const handleStop = useCallback(() => {
     shouldStopRef.current = true;
@@ -208,6 +218,10 @@ export default function DetectionPanel({
   const handleBatchDetect = useCallback(async () => {
     const targets = screenshots.filter((s) => selected.has(getScreenshotIdentity(s)));
     if (targets.length === 0) return;
+    if (apiHealth?.ok === false) {
+      setUploadNotice({ tone: 'error', message: `检测服务不可用：${apiHealth.message}` });
+      return;
+    }
     setIsDetecting(true);
     shouldStopRef.current = false;
     onStatusChange('detecting');
@@ -232,7 +246,7 @@ export default function DetectionPanel({
     setIsDetecting(false);
     onStatusChange(shouldStopRef.current ? 'idle' : 'complete');
     if (!shouldStopRef.current) await handlePostDetection(newTowers);
-  }, [screenshots, selected, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
+  }, [screenshots, selected, apiHealth, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
 
   // ── handleBatchUpload ─────────────────────────────────────────────────────
 
@@ -474,8 +488,9 @@ export default function DetectionPanel({
           {!isDetecting ? (
             <button
               onClick={handleDetect}
-              disabled={screenshots.length === 0 || !apiUrl.trim()}
+              disabled={screenshots.length === 0 || !apiUrl.trim() || apiHealth?.ok === false}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white rounded-md transition-colors"
+              title={apiHealth?.ok === false ? apiHealth.message : undefined}
             >
               <Play className="w-3.5 h-3.5" />
               开始识别
@@ -557,9 +572,14 @@ export default function DetectionPanel({
             >
               保存
             </button>
-            {apiHealthy !== null && (
-              <span className={`text-xs ${apiHealthy ? 'text-emerald-400' : 'text-red-400'}`}>
-                {apiHealthy ? '● 正常' : '● 异常'}
+            {apiHealth !== null && (
+              <span
+                className={`max-w-80 truncate text-xs ${apiHealth.ok ? 'text-emerald-400' : 'text-red-400'}`}
+                title={apiHealth.message}
+              >
+                {apiHealth.ok
+                  ? `● 正常${apiHealth.customWeights ? '：模型已加载' : ''}`
+                  : `● 异常：${apiHealth.message}`}
               </span>
             )}
           </div>
@@ -620,6 +640,8 @@ export default function DetectionPanel({
           if (first) setMatchTarget(first);
         }}
         isDetecting={isDetecting}
+        detectDisabled={apiHealth?.ok === false}
+        detectTitle={apiHealth?.ok === false ? apiHealth.message : undefined}
         uploadTitle={selectedUploadPlan.ready.length === 0 ? '所选截图需先审核或绑定企业后再上传' : undefined}
       />
 

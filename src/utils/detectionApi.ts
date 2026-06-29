@@ -28,6 +28,47 @@ export interface DetectionApiResult {
   }>;
 }
 
+export interface DetectionHealthStatus {
+  ok: boolean;
+  status?: number;
+  message: string;
+  customWeights?: boolean;
+  weightsPath?: string;
+}
+
+function formatServerDetail(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    const detail = value as Record<string, unknown>;
+    if (typeof detail.message === 'string') return detail.message;
+    if (typeof detail.detail === 'string') return detail.detail;
+    if (detail.detail && typeof detail.detail === 'object') {
+      return formatServerDetail(detail.detail);
+    }
+    return JSON.stringify(detail);
+  }
+  return '';
+}
+
+async function readResponseDetail(response: Response): Promise<string> {
+  try {
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      return formatServerDetail(body.detail ?? body);
+    }
+    return (await response.text()).trim();
+  } catch {
+    return '';
+  }
+}
+
+async function throwDetectionError(response: Response): Promise<never> {
+  const detail = await readResponseDetail(response);
+  const suffix = detail ? `: ${detail}` : '';
+  throw new Error(`检测失败: ${response.status} ${response.statusText}${suffix}`);
+}
+
 export async function detectImage(
   imageSource: Blob | string,
   filename: string,
@@ -47,7 +88,7 @@ export async function detectImage(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image_url: imageSource }),
     });
-    if (!response.ok) throw new Error(`检测失败: ${response.status} ${response.statusText}`);
+    if (!response.ok) await throwDetectionError(response);
     return response.json();
   }
 
@@ -58,19 +99,49 @@ export async function detectImage(
     method: 'POST',
     body: formData,
   });
-  if (!response.ok) throw new Error(`检测失败: ${response.status} ${response.statusText}`);
+  if (!response.ok) await throwDetectionError(response);
   return response.json();
 }
 
-export async function checkHealth(apiUrl?: string): Promise<boolean> {
+export async function getHealthStatus(apiUrl?: string): Promise<DetectionHealthStatus> {
   const url = apiUrl || getDetectionApiUrl();
   if (!url) {
-    return false;
+    return { ok: false, message: '检测服务地址未配置' };
   }
   try {
     const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
-    return res.ok;
-  } catch {
-    return false;
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+    const detail = body && typeof body === 'object' && 'detail' in body
+      ? (body as { detail: unknown }).detail
+      : body;
+    const detailRecord = detail && typeof detail === 'object'
+      ? detail as Record<string, unknown>
+      : {};
+    const message = formatServerDetail(detail) || (res.ok ? 'ok' : res.statusText || '检测服务异常');
+    return {
+      ok: res.ok,
+      status: res.status,
+      message,
+      customWeights: typeof detailRecord.custom_weights === 'boolean'
+        ? detailRecord.custom_weights
+        : undefined,
+      weightsPath: typeof detailRecord.weights_path === 'string'
+        ? detailRecord.weights_path
+        : undefined,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
   }
+}
+
+export async function checkHealth(apiUrl?: string): Promise<boolean> {
+  return (await getHealthStatus(apiUrl)).ok;
 }
