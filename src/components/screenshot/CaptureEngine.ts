@@ -1,6 +1,11 @@
 import mapboxgl from 'mapbox-gl';
 import { supabase } from '../../lib/supabase.ts';
-import { autoZoomForRadius, getViewportPixelSize, viewSpanAtZoom } from '../../utils/rasterViewport.ts';
+import { getViewportPixelSize } from '../../utils/rasterViewport.ts';
+import {
+  metersPerWorldPixelAtLat,
+  projectLngLatToWorldPixels,
+  unprojectWorldPixelsToLngLat,
+} from '../../utils/mercatorPixels.ts';
 import { SCREENSHOT_STORAGE_BUCKET } from '../../utils/storageBuckets.ts';
 import { buildStitchedStoragePath } from '../../utils/storagePath.ts';
 import { buildProjectedStitchLayout, buildStitchLayout } from '../../utils/stitchLayout.ts';
@@ -112,11 +117,12 @@ async function captureCleanCanvasDataUrl(map: mapboxgl.Map): Promise<string> {
 
 async function uploadToStorage(
   blob: Blob,
-  path: string
+  path: string,
+  contentType = blob.type || 'image/png',
 ): Promise<{ publicUrl: string | null; error: string | null }> {
   const { error } = await supabase.storage
     .from(SCREENSHOT_STORAGE_BUCKET)
-    .upload(path, blob, { contentType: 'image/png', upsert: true });
+    .upload(path, blob, { contentType, upsert: true });
   if (error) return { publicUrl: null, error: error.message };
   const { data } = supabase.storage.from(SCREENSHOT_STORAGE_BUCKET).getPublicUrl(path);
   return { publicUrl: data.publicUrl, error: null };
@@ -243,27 +249,28 @@ export function buildAreaTasks(
   overlapRatio = 0.1,
   zoom?: number
 ): CaptureTask[] {
-  const centerLat = (topLeftLat + bottomRightLat) / 2;
   const canvas = map.getCanvas();
   const viewport = getViewportPixelSize(canvas);
   const z = zoom ?? map.getZoom();
-  const { spanLng, spanLat } = viewSpanAtZoom(z, viewport.width, viewport.height, centerLat);
-  const stepLng = spanLng * (1 - overlapRatio);
-  const stepLat = spanLat * (1 - overlapRatio);
+  const topLeft = projectLngLatToWorldPixels(topLeftLng, topLeftLat, z);
+  const bottomRight = projectLngLatToWorldPixels(bottomRightLng, bottomRightLat, z);
+  const stepX = viewport.width * (1 - overlapRatio);
+  const stepY = viewport.height * (1 - overlapRatio);
 
   const tasks: CaptureTask[] = [];
-  let currentLat = topLeftLat - spanLat / 2;
+  let centerY = topLeft.y + viewport.height / 2;
   let row = 0;
 
-  while (currentLat + spanLat / 2 >= bottomRightLat) {
-    let currentLng = topLeftLng + spanLng / 2;
+  while (centerY - viewport.height / 2 <= bottomRight.y) {
+    let centerX = topLeft.x + viewport.width / 2;
     let col = 0;
-    while (currentLng - spanLng / 2 <= bottomRightLng) {
-      tasks.push({ row, col, lng: currentLng, lat: currentLat });
-      currentLng += stepLng;
+    while (centerX - viewport.width / 2 <= bottomRight.x) {
+      const { lng, lat } = unprojectWorldPixelsToLngLat(centerX, centerY, z);
+      tasks.push({ row, col, lng, lat });
+      centerX += stepX;
       col++;
     }
-    currentLat -= stepLat;
+    centerY += stepY;
     row++;
   }
 
@@ -316,33 +323,29 @@ export function buildAddressGridTasks(
 ): { tasks: CaptureTask[]; gridCols: number; gridRows: number } {
   const canvas = map.getCanvas();
   const viewport = getViewportPixelSize(canvas);
-  const { spanLng, spanLat } = viewSpanAtZoom(zoom, viewport.width, viewport.height, centerLat);
-
-  // meters per tile (approximate, using center lat)
-  const metersPerDegreeLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
-  const tileWidthMeters = spanLng * metersPerDegreeLng;
-  const tileHeightMeters = spanLat * 111320;
-
-  const stepWidthMeters = tileWidthMeters * (1 - overlapRatio);
-  const stepHeightMeters = tileHeightMeters * (1 - overlapRatio);
+  const center = projectLngLatToWorldPixels(centerLng, centerLat, zoom);
+  const metersPerPixel = metersPerWorldPixelAtLat(zoom, centerLat);
+  const radiusPixels = radiusMeters / metersPerPixel;
+  const stepX = viewport.width * (1 - overlapRatio);
+  const stepY = viewport.height * (1 - overlapRatio);
 
   // Number of tiles needed to cover diameter, rounded up to odd (center tile on center point)
-  const colsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepWidthMeters));
-  const rowsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepHeightMeters));
+  const colsNeeded = Math.max(1, Math.ceil((radiusPixels * 2) / stepX));
+  const rowsNeeded = Math.max(1, Math.ceil((radiusPixels * 2) / stepY));
   const gridCols = colsNeeded % 2 === 0 ? colsNeeded + 1 : colsNeeded;
   const gridRows = rowsNeeded % 2 === 0 ? rowsNeeded + 1 : rowsNeeded;
 
   const halfCols = Math.floor(gridCols / 2);
   const halfRows = Math.floor(gridRows / 2);
 
-  const stepLng = spanLng * (1 - overlapRatio);
-  const stepLat = spanLat * (1 - overlapRatio);
-
   const tasks: CaptureTask[] = [];
   for (let row = 0; row < gridRows; row++) {
     for (let col = 0; col < gridCols; col++) {
-      const lng = centerLng + (col - halfCols) * stepLng;
-      const lat = centerLat - (row - halfRows) * stepLat;
+      const { lng, lat } = unprojectWorldPixelsToLngLat(
+        center.x + (col - halfCols) * stepX,
+        center.y + (row - halfRows) * stepY,
+        zoom,
+      );
       tasks.push({ row, col, lng, lat, addressLabel, resolvedAddress });
     }
   }
@@ -359,14 +362,12 @@ export function estimateAddressGridCount(
   centerLat = 30,
   overlapRatio = 0.1,
 ): { gridCols: number; gridRows: number; total: number } {
-  const { spanLng, spanLat } = viewSpanAtZoom(zoom, canvasWidth, canvasHeight, centerLat);
-  const metersPerDegreeLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
-  const tileWidthMeters = spanLng * metersPerDegreeLng;
-  const tileHeightMeters = spanLat * 111320;
-  const stepWidthMeters = tileWidthMeters * (1 - overlapRatio);
-  const stepHeightMeters = tileHeightMeters * (1 - overlapRatio);
-  const colsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepWidthMeters));
-  const rowsNeeded = Math.max(1, Math.ceil((radiusMeters * 2) / stepHeightMeters));
+  const metersPerPixel = metersPerWorldPixelAtLat(zoom, centerLat);
+  const radiusPixels = radiusMeters / metersPerPixel;
+  const stepX = canvasWidth * (1 - overlapRatio);
+  const stepY = canvasHeight * (1 - overlapRatio);
+  const colsNeeded = Math.max(1, Math.ceil((radiusPixels * 2) / stepX));
+  const rowsNeeded = Math.max(1, Math.ceil((radiusPixels * 2) / stepY));
   const gridCols = colsNeeded % 2 === 0 ? colsNeeded + 1 : colsNeeded;
   const gridRows = rowsNeeded % 2 === 0 ? rowsNeeded + 1 : rowsNeeded;
   return { gridCols, gridRows, total: gridCols * gridRows };
@@ -452,7 +453,7 @@ export async function stitchTiles(
   }
 
   return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob failed')), 'image/png');
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob failed')), 'image/jpeg', 0.92);
   });
 }
 
@@ -509,11 +510,16 @@ export async function runAddressCapture(opts: {
 
   // Upload stitched image
   const safeLabel = addressLabel.slice(0, 20).replace(/[/\\?%*:|"<>]/g, '_');
-  const filename = `stitched_Z${zoomLevel}_${safeLabel}.png`;
-  const storagePath = buildStitchedStoragePath(sessionId, zoomLevel);
+  const filename = `stitched_Z${zoomLevel}_${safeLabel}.jpg`;
+  const storagePath = buildStitchedStoragePath(sessionId, zoomLevel, 'jpg');
   const { publicUrl, error: uploadError } = await uploadToStorage(stitchedBlob, storagePath);
   if (uploadError) {
     log(`拼合图上传失败: ${uploadError}`, 'error');
+    throw new Error(`拼合图上传失败: ${uploadError}`);
+  }
+  if (!publicUrl) {
+    log('拼合图上传失败: 未返回公开访问地址', 'error');
+    throw new Error('拼合图上传失败: 未返回公开访问地址');
   }
 
   log(`拼合完成 (${gridCols}×${gridRows} → ${Math.round(stitchedBlob.size / 1024)}KB)，${publicUrl ? '✓ 已上传' : '上传失败'}`, publicUrl ? 'success' : 'error');

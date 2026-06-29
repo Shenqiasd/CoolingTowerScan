@@ -1,4 +1,4 @@
-import { MAPBOX_VIEWPORT_TILE_SIZE } from './rasterViewport.ts';
+import { projectLngLatToWorldPixels } from './mercatorPixels.ts';
 
 export interface StitchLayoutOptions {
   tileWidth: number;
@@ -102,20 +102,6 @@ export function buildStitchLayout({
     width: cols.total,
     height: rows.total,
     tiles,
-  };
-}
-
-function projectLngLatToWorldPixels(
-  lng: number,
-  lat: number,
-  zoom: number,
-): { x: number; y: number } {
-  const worldSize = MAPBOX_VIEWPORT_TILE_SIZE * (2 ** zoom);
-  const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
-  const sinLat = Math.sin((clampedLat * Math.PI) / 180);
-  return {
-    x: ((lng + 180) / 360) * worldSize,
-    y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * worldSize,
   };
 }
 
