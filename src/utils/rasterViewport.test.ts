@@ -13,8 +13,8 @@ test('viewSpanAtZoom matches Mapbox GL viewport zoom semantics', () => {
 
   assert.equal(SATELLITE_SOURCE_TILE_SIZE, 256);
   assert.equal(MAPBOX_VIEWPORT_TILE_SIZE, 512);
-  assert.ok(Math.abs(span.spanLng - 0.0040469658717750695) < 1e-12);
-  assert.ok(Math.abs(span.spanLat - 0.0019311816569737637) < 1e-12);
+  assert.ok(Math.abs(span.spanLng - Number('0.0040469658717750695')) < 1e-12);
+  assert.ok(Math.abs(span.spanLat - Number('0.0019311816569737637')) < 1e-12);
 });
 
 test('getViewportPixelSize prefers CSS viewport size over backing store size', () => {
