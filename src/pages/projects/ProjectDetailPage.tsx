@@ -44,6 +44,7 @@ import {
 import { SOP_PHASE_LABELS, type SopPhase } from '../../types/project';
 import {
   buildCommercialSummaryItems,
+  buildSolutionCalculationSummaryFromHvacEvaluationResult,
   createDefaultSolutionWorkspace,
   createSolutionWorkspaceDraft,
   evaluateSolutionWorkspacePayload,
@@ -72,6 +73,7 @@ import {
 import { HvacSurveyPanel } from './HvacSurveyPanel';
 import {
   createDefaultHvacSurveyWorkspace,
+  HVAC_SAVING_MODE_LABELS,
   type ProjectHvacSurveyWorkspace,
 } from '../../utils/projectHvacSurveyWorkspace';
 import { supabase } from '../../lib/supabase';
@@ -770,12 +772,18 @@ export default function ProjectDetailPage() {
     surveyWorkspace?.gateValidation.canComplete
     && hvacSurveyWorkspace?.gateValidation.canComplete,
   );
+  const hvacSolutionCalculation = hvacSurveyWorkspace?.latestEvaluation
+    ? buildSolutionCalculationSummaryFromHvacEvaluationResult(hvacSurveyWorkspace.latestEvaluation.result)
+    : null;
   const serializedSolutionDraft = solutionDraft
     ? serializeSolutionWorkspaceDraft(solutionDraft)
     : null;
   const solutionPreview = serializedSolutionDraft
-    ? evaluateSolutionWorkspacePayload(serializedSolutionDraft)
+    ? evaluateSolutionWorkspacePayload(serializedSolutionDraft, hvacSolutionCalculation)
     : null;
+  const calculationSourceLabel = hvacSurveyWorkspace?.latestEvaluation
+    ? `暖通测算 · ${HVAC_SAVING_MODE_LABELS[hvacSurveyWorkspace.latestEvaluation.savingMode]} · ${hvacSurveyWorkspace.latestEvaluation.year}`
+    : '方案假设快算';
   const activeCalculationSummary = solutionPreview?.calculationSummary ?? solutionWorkspace?.calculationSummary ?? defaultSolutionWorkspace.calculationSummary;
   const activeGateValidation = solutionPreview?.gateValidation ?? solutionWorkspace?.gateValidation ?? defaultSolutionWorkspace.gateValidation;
   const activeCommercialBranching = solutionDraft
@@ -1615,10 +1623,10 @@ export default function ProjectDetailPage() {
                 </fieldset>
 
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <MetricCard title="基线年耗电" value={`${activeCalculationSummary.baselineAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} />
-                  <MetricCard title="目标年耗电" value={`${activeCalculationSummary.targetAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} />
-                  <MetricCard title="年节电量" value={`${activeCalculationSummary.annualPowerSavingKwh.toLocaleString('zh-CN')} kWh`} />
-                  <MetricCard title="年节约电费" value={`${activeCalculationSummary.annualCostSavingCny.toLocaleString('zh-CN')} 元`} />
+                  <MetricCard title="基线年耗电" value={`${activeCalculationSummary.baselineAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} hint={calculationSourceLabel} />
+                  <MetricCard title="目标年耗电" value={`${activeCalculationSummary.targetAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} hint={calculationSourceLabel} />
+                  <MetricCard title="年节电量" value={`${activeCalculationSummary.annualPowerSavingKwh.toLocaleString('zh-CN')} kWh`} hint={calculationSourceLabel} />
+                  <MetricCard title="年节约电费" value={`${activeCalculationSummary.annualCostSavingCny.toLocaleString('zh-CN')} 元`} hint={calculationSourceLabel} />
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">

@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
 import type { AppEnv } from '../src/config/env.js';
-import { buildHvacSurveyGateValidation } from '../src/modules/projects/project.repo.js';
+import {
+  buildHvacSurveyGateValidation,
+  buildSolutionCalculationSummaryFromHvacEvaluation,
+} from '../src/modules/projects/project.repo.js';
 import type {
   ProjectDetail,
   ProjectAuditLogItem,
@@ -659,6 +662,67 @@ describe('project routes', () => {
       canComplete: true,
       errors: [],
     });
+  });
+
+  it('uses the latest HVAC evaluation as the solution calculation source', () => {
+    const result = buildSolutionCalculationSummaryFromHvacEvaluation({
+      id: 'evaluation-1',
+      projectId: 'project-1',
+      year: 2026,
+      savingMode: 'balanced',
+      result: {
+        yearEnergyBeforeKwh: 15000,
+        yearEnergyAfterKwh: 13500,
+        yearSavingEnergyKwh: 1500,
+        yearSavingCostCny: 1200,
+        yearSavingRate: 0.1,
+        byDeviceType: {},
+        monthTrends: [],
+      },
+      createdBy: 'pm-user-1',
+      createdAt: '2026-04-14T09:00:00.000Z',
+    });
+
+    expect(result).toEqual({
+      calculationSummary: {
+        baselineAnnualEnergyKwh: 15000,
+        targetAnnualEnergyKwh: 13500,
+        annualPowerSavingKwh: 1500,
+        annualCostSavingCny: 1200,
+        efficiencyImprovementRatio: 0.1,
+        baselineCoolingPowerKw: 0,
+        targetCoolingPowerKw: 0,
+      },
+      gateErrors: [],
+    });
+  });
+
+  it('blocks solution calculations from invalid HVAC evaluation results', () => {
+    const result = buildSolutionCalculationSummaryFromHvacEvaluation({
+      id: 'evaluation-1',
+      projectId: 'project-1',
+      year: 2026,
+      savingMode: 'balanced',
+      result: {
+        yearEnergyBeforeKwh: 1000,
+        yearEnergyAfterKwh: 1200,
+        yearSavingEnergyKwh: -200,
+        yearSavingCostCny: -160,
+        yearSavingRate: -0.2,
+        byDeviceType: {},
+        monthTrends: [],
+      },
+      createdBy: 'pm-user-1',
+      createdAt: '2026-04-14T09:00:00.000Z',
+    });
+
+    expect(result.calculationSummary).toMatchObject({
+      baselineAnnualEnergyKwh: 1000,
+      targetAnnualEnergyKwh: 1200,
+      annualPowerSavingKwh: -200,
+    });
+    expect(result.gateErrors).toContain('hvac evaluation annual saving must be greater than 0');
+    expect(result.gateErrors).toContain('hvac evaluation target annual energy must be lower than baseline annual energy');
   });
 
   it('rejects unauthenticated project creation', async () => {

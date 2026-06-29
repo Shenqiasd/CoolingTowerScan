@@ -573,6 +573,48 @@ function getSolutionCalculationSummary(
   };
 }
 
+export function buildSolutionCalculationSummaryFromHvacEvaluation(
+  evaluation: ProjectHvacEvaluation | null,
+): {
+  calculationSummary: ProjectSolutionCalculationSummary | null;
+  gateErrors: string[];
+} {
+  if (!evaluation) {
+    return {
+      calculationSummary: null,
+      gateErrors: [],
+    };
+  }
+
+  const result = evaluation.result;
+  const gateErrors: string[] = [];
+  if (result.yearEnergyBeforeKwh <= 0) {
+    gateErrors.push('hvac evaluation baseline annual energy must be greater than 0');
+  }
+  if (result.yearEnergyAfterKwh < 0) {
+    gateErrors.push('hvac evaluation target annual energy must be greater than or equal to 0');
+  }
+  if (result.yearSavingEnergyKwh <= 0) {
+    gateErrors.push('hvac evaluation annual saving must be greater than 0');
+  }
+  if (result.yearEnergyAfterKwh >= result.yearEnergyBeforeKwh) {
+    gateErrors.push('hvac evaluation target annual energy must be lower than baseline annual energy');
+  }
+
+  return {
+    calculationSummary: {
+      baselineAnnualEnergyKwh: result.yearEnergyBeforeKwh,
+      targetAnnualEnergyKwh: result.yearEnergyAfterKwh,
+      annualPowerSavingKwh: result.yearSavingEnergyKwh,
+      annualCostSavingCny: result.yearSavingCostCny,
+      efficiencyImprovementRatio: result.yearSavingRate,
+      baselineCoolingPowerKw: 0,
+      targetCoolingPowerKw: 0,
+    },
+    gateErrors,
+  };
+}
+
 function getSolutionCommercialGateErrors(
   branching: ProjectSolutionCommercialBranching,
 ): string[] {
@@ -1443,7 +1485,13 @@ async function getProjectSolutionWorkspace(
   const assumptions = getSolutionTechnicalAssumptions(project.phase_data);
   const commercialBranching = getSolutionCommercialBranching(project.phase_data);
   const commercialFreezeApproval = getSolutionFreezeApproval(project.phase_data);
-  const { calculationSummary, gateErrors: technicalGateErrors } = getSolutionCalculationSummary(assumptions);
+  const latestHvacEvaluation = await getLatestHvacEvaluation(supabaseAdmin, projectId);
+  const hvacCalculation = buildSolutionCalculationSummaryFromHvacEvaluation(latestHvacEvaluation);
+  const fallbackCalculation = getSolutionCalculationSummary(assumptions);
+  const calculationSummary = hvacCalculation.calculationSummary ?? fallbackCalculation.calculationSummary;
+  const technicalGateErrors = hvacCalculation.calculationSummary
+    ? hvacCalculation.gateErrors
+    : fallbackCalculation.gateErrors;
   const commercialGateErrors = getSolutionCommercialGateErrors(commercialBranching);
   const gateErrors = [...technicalGateErrors, ...commercialGateErrors];
   const latestSnapshot = await getLatestSolutionSnapshot(supabaseAdmin, projectId);
