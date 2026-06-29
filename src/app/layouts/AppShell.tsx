@@ -259,6 +259,7 @@ export default function AppShell() {
 
   const handleViewChange = useCallback((view: SidebarView) => {
     if (view === 'dashboard') {
+      setPhaseFilter('');
       navigate('/projects');
       return;
     }
@@ -269,7 +270,12 @@ export default function AppShell() {
     }
 
     navigate(DISCOVERY_PATHS[view]);
-  }, [navigate]);
+  }, [navigate, setPhaseFilter]);
+
+  const handleProjectPhaseSelect = useCallback((phase: SopPhase) => {
+    setPhaseFilter(phase);
+    navigate('/projects');
+  }, [navigate, setPhaseFilter]);
 
   const handleStepChange = useCallback((step: PipelineStep) => {
     navigate(DISCOVERY_PATHS[step]);
@@ -338,6 +344,8 @@ export default function AppShell() {
       <LifecycleSidebar
         activeView={activeView}
         onViewChange={handleViewChange}
+        activeProjectPhase={isDashboard ? phaseFilter : ''}
+        onProjectPhaseSelect={handleProjectPhaseSelect}
         activeStep={activeStep}
         onStepChange={handleStepChange}
         session={session}

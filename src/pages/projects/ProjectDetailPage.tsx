@@ -569,7 +569,7 @@ export default function ProjectDetailPage() {
       );
       setSurveyWorkspace(updated);
       setSurveyDraft(createSurveyWorkspaceDraft(updated));
-      setNotice('Survey Workspace 已保存');
+      setNotice('探勘调研已保存');
       setAuditLogs(await getProjectAudit(projectId).catch(() => auditLogs));
     } catch (nextError) {
       setSurveyError(getErrorMessage(nextError));
@@ -592,7 +592,7 @@ export default function ProjectDetailPage() {
       setSurveyWorkspace(completed);
       setSurveyDraft(createSurveyWorkspaceDraft(completed));
       await loadProject();
-      setNotice('Survey 阶段已完成');
+      setNotice('探勘调研阶段已完成');
     } catch (nextError) {
       setSurveyError(getErrorMessage(nextError));
     } finally {
@@ -768,8 +768,14 @@ export default function ProjectDetailPage() {
   }, [loadProject, projectId]);
 
   const defaultSolutionWorkspace = createDefaultSolutionWorkspace(projectId);
+  const surveyGateValidation = surveyWorkspace?.gateValidation ?? {
+    canComplete: false,
+    errors: surveyError
+      ? [`基础探勘调研不可用：${surveyError}`]
+      : ['基础探勘调研尚未加载，无法完成阶段。'],
+  };
   const canCompleteSurvey = Boolean(
-    surveyWorkspace?.gateValidation.canComplete
+    surveyGateValidation.canComplete
     && hvacSurveyWorkspace?.gateValidation.canComplete,
   );
   const hvacSolutionCalculation = hvacSurveyWorkspace?.latestEvaluation
@@ -1079,8 +1085,8 @@ export default function ProjectDetailPage() {
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-medium text-white">Survey Workspace</h3>
-                <p className="mt-1 text-xs text-slate-500">结构化维护信息采集、调研记录、台账、缺口和交接。</p>
+                <h3 className="text-sm font-medium text-white">探勘调研</h3>
+                <p className="mt-1 text-xs text-slate-500">结构化维护现场信息、四川空调数据应用、设备台账、运行建模、节能测算、缺口和交接。</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {surveyWorkspace && (
@@ -1095,7 +1101,7 @@ export default function ProjectDetailPage() {
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-200 transition-colors hover:border-cyan-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {savingSurvey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                  保存 Survey
+                  保存调研
                 </button>
                 <button
                   onClick={() => void handleCompleteSurvey()}
@@ -1103,14 +1109,14 @@ export default function ProjectDetailPage() {
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-900/40"
                 >
                   {completingSurvey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
-                  完成 Survey
+                  完成调研
                 </button>
               </div>
             </div>
 
             {surveyError ? (
               <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-200">
-                Survey Workspace 不可用：{surveyError}
+                基础探勘调研不可用：{surveyError}
               </div>
             ) : null}
 
@@ -1120,7 +1126,7 @@ export default function ProjectDetailPage() {
               </div>
             ) : null}
 
-            {surveyDraft && surveyWorkspace ? (
+            {surveyDraft || hvacSurveyWorkspace ? (
               <div className="space-y-5">
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
                   <div className="flex items-center gap-2">
@@ -1128,14 +1134,14 @@ export default function ProjectDetailPage() {
                     <h4 className="text-sm font-medium text-white">完成校验</h4>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                    <span className={`rounded-full px-2.5 py-1 ${surveyWorkspace.gateValidation.canComplete ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
-                      {surveyWorkspace.gateValidation.canComplete ? '可完成' : '未满足完成条件'}
+                    <span className={`rounded-full px-2.5 py-1 ${surveyGateValidation.canComplete ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                      {surveyGateValidation.canComplete ? '可完成' : '未满足完成条件'}
                     </span>
-                    <span className="text-slate-500">错误数 {surveyWorkspace.gateValidation.errors.length}</span>
+                    <span className="text-slate-500">错误数 {surveyGateValidation.errors.length}</span>
                   </div>
-                  {surveyWorkspace.gateValidation.errors.length > 0 ? (
+                  {surveyGateValidation.errors.length > 0 ? (
                     <ul className="mt-3 space-y-2 text-xs text-amber-200">
-                      {surveyWorkspace.gateValidation.errors.map((item) => (
+                      {surveyGateValidation.errors.map((item) => (
                         <li key={item} className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">
                           {item}
                         </li>
@@ -1155,6 +1161,8 @@ export default function ProjectDetailPage() {
                   />
                 ) : null}
 
+                {surveyDraft ? (
+                  <>
                 <div className="grid gap-4 xl:grid-cols-2">
                   <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                     <h4 className="text-sm font-medium text-white">信息采集</h4>
@@ -1324,6 +1332,12 @@ export default function ProjectDetailPage() {
                     </div>
                   ))}
                 </SurveyCollectionSection>
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+                    基础探勘表单暂未加载，但暖通探勘子模块会独立显示。请稍后重试保存基础调研信息。
+                  </div>
+                )}
               </div>
             ) : null}
           </section>
