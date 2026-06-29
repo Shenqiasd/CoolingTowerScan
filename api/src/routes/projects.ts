@@ -7,15 +7,27 @@ import {
   PROJECT_DATA_GAP_TYPES,
   PROJECT_EQUIPMENT_STATUSES,
   PROJECT_HANDOFF_STATUSES,
+  PROJECT_HVAC_DEVICE_TYPES,
+  PROJECT_HVAC_OPERATION_STRATEGIES,
+  PROJECT_HVAC_REVIEW_STATUSES,
+  PROJECT_HVAC_SAVING_MODES,
   PROJECT_PRIORITIES,
   PROJECT_SOLUTION_FREEZE_DECISIONS,
   PROJECT_STAGE_CODES,
   PROJECT_STAGE_STATUSES,
   PROJECT_WORKFLOW_STATUSES,
   type ProjectDataGapItem,
+  type ProjectEquipmentMonthlyProfile,
   type ProjectEquipmentLedgerItem,
+  type ProjectEquipmentStatus,
   type ProjectHandoffItem,
+  type ProjectHvacDeviceType,
+  type ProjectHvacEquipmentAsset,
+  type ProjectHvacOperationStrategy,
+  type ProjectHvacReviewStatus,
+  type ProjectHvacSavingMode,
   type ProjectRepo,
+  type RunHvacEvaluationInput,
   type ProjectStageCode,
   type ProjectStageStatus,
   type ProjectSolutionTechnicalAssumptions,
@@ -24,6 +36,7 @@ import {
   type ProjectWorkflowStatus,
   type ProjectSurveyInfoCollection,
   type ProjectSurveyRecord,
+  type UpsertCoolingStationInput,
 } from '../modules/projects/project.schemas.js';
 
 declare module 'fastify' {
@@ -85,6 +98,14 @@ function parseOptionalNumber(value: unknown, code: string, message: string): num
     return undefined;
   }
 
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  throw new AppError(400, code, message);
+}
+
+function parseRequiredNumber(value: unknown, code: string, message: string): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
@@ -509,6 +530,238 @@ function parseSolutionFreezeDecision(value: unknown) {
   throw new AppError(400, 'PROJECT_SOLUTION_FREEZE_DECISION_INVALID', 'Solution freeze decision is invalid.');
 }
 
+function parseHvacDeviceType(value: unknown, index: number): ProjectHvacDeviceType {
+  if (
+    typeof value === 'string'
+    && PROJECT_HVAC_DEVICE_TYPES.includes(value as ProjectHvacDeviceType)
+  ) {
+    return value as ProjectHvacDeviceType;
+  }
+
+  throw new AppError(400, 'PROJECT_HVAC_EQUIPMENT_INVALID', `HVAC equipment ${index} deviceType is invalid.`);
+}
+
+function parseEquipmentStatus(value: unknown, index: number): ProjectEquipmentStatus {
+  if (
+    typeof value === 'string'
+    && PROJECT_EQUIPMENT_STATUSES.includes(value as ProjectEquipmentStatus)
+  ) {
+    return value as ProjectEquipmentStatus;
+  }
+
+  throw new AppError(400, 'PROJECT_HVAC_EQUIPMENT_INVALID', `HVAC equipment ${index} status is invalid.`);
+}
+
+function parseHvacReviewStatus(value: unknown, index: number): ProjectHvacReviewStatus {
+  if (
+    typeof value === 'string'
+    && PROJECT_HVAC_REVIEW_STATUSES.includes(value as ProjectHvacReviewStatus)
+  ) {
+    return value as ProjectHvacReviewStatus;
+  }
+
+  throw new AppError(400, 'PROJECT_HVAC_EQUIPMENT_INVALID', `HVAC equipment ${index} reviewStatus is invalid.`);
+}
+
+function parseHvacOperationStrategy(value: unknown, index: number): ProjectHvacOperationStrategy {
+  if (
+    typeof value === 'string'
+    && PROJECT_HVAC_OPERATION_STRATEGIES.includes(value as ProjectHvacOperationStrategy)
+  ) {
+    return value as ProjectHvacOperationStrategy;
+  }
+
+  throw new AppError(400, 'PROJECT_HVAC_MONTHLY_PROFILE_INVALID', `HVAC monthly profile ${index} operationStrategy is invalid.`);
+}
+
+function parseHvacSavingMode(value: unknown): ProjectHvacSavingMode {
+  if (
+    typeof value === 'string'
+    && PROJECT_HVAC_SAVING_MODES.includes(value as ProjectHvacSavingMode)
+  ) {
+    return value as ProjectHvacSavingMode;
+  }
+
+  throw new AppError(400, 'PROJECT_HVAC_EVALUATION_INVALID', 'HVAC savingMode is invalid.');
+}
+
+function parseCoolingStationInput(value: Record<string, unknown>, stationId?: string): UpsertCoolingStationInput {
+  return {
+    id: stationId,
+    name: parseRequiredString(
+      value.name,
+      'PROJECT_HVAC_STATION_NAME_REQUIRED',
+      'Cooling station name is required.',
+    ),
+    locationLabel: parseOptionalString(
+      value.locationLabel,
+      'PROJECT_HVAC_STATION_LOCATION_INVALID',
+      'Cooling station locationLabel must be a string.',
+    ),
+    notes: parseOptionalString(
+      value.notes,
+      'PROJECT_HVAC_STATION_NOTES_INVALID',
+      'Cooling station notes must be a string.',
+    ),
+  };
+}
+
+function parseHvacEquipmentAssets(value: unknown): ProjectHvacEquipmentAsset[] {
+  if (!Array.isArray(value)) {
+    throw new AppError(400, 'PROJECT_HVAC_EQUIPMENT_INVALID', 'HVAC equipment assets must be an array.');
+  }
+
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new AppError(400, 'PROJECT_HVAC_EQUIPMENT_INVALID', `HVAC equipment ${index} must be an object.`);
+    }
+    const item = entry as Record<string, unknown>;
+    const reviewStatus = item.reviewStatus === undefined
+      ? 'pending'
+      : parseHvacReviewStatus(item.reviewStatus, index);
+
+    return {
+      id: typeof item.id === 'string' ? item.id : '',
+      projectId: '',
+      stationId: item.stationId === null ? null : typeof item.stationId === 'string' ? item.stationId : null,
+      sourceFileId: item.sourceFileId === null ? null : typeof item.sourceFileId === 'string' ? item.sourceFileId : null,
+      deviceType: parseHvacDeviceType(item.deviceType, index),
+      equipmentName: typeof item.equipmentName === 'string' ? item.equipmentName : '',
+      brand: typeof item.brand === 'string' ? item.brand : '',
+      model: typeof item.model === 'string' ? item.model : '',
+      quantity: parseRequiredNumber(
+        item.quantity,
+        'PROJECT_HVAC_EQUIPMENT_INVALID',
+        `HVAC equipment ${index} quantity must be a number.`,
+      ),
+      ratedPowerKw: parseNullableNumber(
+        item.ratedPowerKw,
+        'PROJECT_HVAC_EQUIPMENT_INVALID',
+        `HVAC equipment ${index} ratedPowerKw must be a number or null.`,
+      ) ?? null,
+      ratedCoolingCapacityKw: parseNullableNumber(
+        item.ratedCoolingCapacityKw,
+        'PROJECT_HVAC_EQUIPMENT_INVALID',
+        `HVAC equipment ${index} ratedCoolingCapacityKw must be a number or null.`,
+      ) ?? null,
+      ratedCop: parseNullableNumber(
+        item.ratedCop,
+        'PROJECT_HVAC_EQUIPMENT_INVALID',
+        `HVAC equipment ${index} ratedCop must be a number or null.`,
+      ) ?? null,
+      frequencyHz: parseNullableNumber(
+        item.frequencyHz,
+        'PROJECT_HVAC_EQUIPMENT_INVALID',
+        `HVAC equipment ${index} frequencyHz must be a number or null.`,
+      ) ?? null,
+      headM: parseNullableNumber(
+        item.headM,
+        'PROJECT_HVAC_EQUIPMENT_INVALID',
+        `HVAC equipment ${index} headM must be a number or null.`,
+      ) ?? null,
+      flowRateM3h: parseNullableNumber(
+        item.flowRateM3h,
+        'PROJECT_HVAC_EQUIPMENT_INVALID',
+        `HVAC equipment ${index} flowRateM3h must be a number or null.`,
+      ) ?? null,
+      heatExchangeCapacityKw: parseNullableNumber(
+        item.heatExchangeCapacityKw,
+        'PROJECT_HVAC_EQUIPMENT_INVALID',
+        `HVAC equipment ${index} heatExchangeCapacityKw must be a number or null.`,
+      ) ?? null,
+      status: item.status === undefined ? 'unknown' : parseEquipmentStatus(item.status, index),
+      reviewStatus,
+      confidence: parseNullableNumber(
+        item.confidence,
+        'PROJECT_HVAC_EQUIPMENT_INVALID',
+        `HVAC equipment ${index} confidence must be a number or null.`,
+      ) ?? null,
+      notes: typeof item.notes === 'string' ? item.notes : '',
+      createdAt: '',
+      updatedAt: '',
+    };
+  });
+}
+
+function parseHvacMonthlyProfiles(value: unknown): ProjectEquipmentMonthlyProfile[] {
+  if (!Array.isArray(value)) {
+    throw new AppError(400, 'PROJECT_HVAC_MONTHLY_PROFILE_INVALID', 'HVAC monthly profiles must be an array.');
+  }
+
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new AppError(400, 'PROJECT_HVAC_MONTHLY_PROFILE_INVALID', `HVAC monthly profile ${index} must be an object.`);
+    }
+    const item = entry as Record<string, unknown>;
+
+    return {
+      id: typeof item.id === 'string' ? item.id : '',
+      projectId: '',
+      equipmentAssetId: parseRequiredString(
+        item.equipmentAssetId,
+        'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
+        `HVAC monthly profile ${index} equipmentAssetId is required.`,
+      ),
+      year: parseRequiredNumber(
+        item.year,
+        'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
+        `HVAC monthly profile ${index} year must be a number.`,
+      ),
+      month: parseRequiredNumber(
+        item.month,
+        'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
+        `HVAC monthly profile ${index} month must be a number.`,
+      ),
+      runNum: parseRequiredNumber(
+        item.runNum,
+        'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
+        `HVAC monthly profile ${index} runNum must be a number.`,
+      ),
+      monthDays: parseRequiredNumber(
+        item.monthDays,
+        'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
+        `HVAC monthly profile ${index} monthDays must be a number.`,
+      ),
+      runDays: parseRequiredNumber(
+        item.runDays,
+        'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
+        `HVAC monthly profile ${index} runDays must be a number.`,
+      ),
+      runDayHours: parseRequiredNumber(
+        item.runDayHours,
+        'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
+        `HVAC monthly profile ${index} runDayHours must be a number.`,
+      ),
+      loadRatePct: parseRequiredNumber(
+        item.loadRatePct,
+        'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
+        `HVAC monthly profile ${index} loadRatePct must be a number.`,
+      ),
+      operationStrategy: item.operationStrategy === undefined
+        ? 'partial_year'
+        : parseHvacOperationStrategy(item.operationStrategy, index),
+      createdAt: '',
+      updatedAt: '',
+    };
+  });
+}
+
+function parseRunHvacEvaluation(value: Record<string, unknown>): RunHvacEvaluationInput {
+  return {
+    year: parseRequiredNumber(
+      value.year,
+      'PROJECT_HVAC_EVALUATION_INVALID',
+      'HVAC evaluation year must be a number.',
+    ),
+    savingMode: parseHvacSavingMode(value.savingMode),
+    electricityPricePerKwh: parseNullableNumber(
+      value.electricityPricePerKwh,
+      'PROJECT_HVAC_EVALUATION_INVALID',
+      'HVAC evaluation electricityPricePerKwh must be a number or null.',
+    ),
+  };
+}
+
 export function registerProjectRoutes(app: FastifyInstance) {
   const service = new ProjectService(app.projectRepo);
 
@@ -656,6 +909,75 @@ export function registerProjectRoutes(app: FastifyInstance) {
       const params = request.params as { projectId?: string };
       const item = await service.completeProjectSurveyWorkspace(
         params.projectId ?? '',
+        request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.get('/v1/projects/:projectId/hvac-survey', async (request) => {
+      const params = request.params as { projectId?: string };
+      const item = await service.getProjectHvacSurveyWorkspace(params.projectId ?? '');
+      return { item };
+    });
+
+    instance.post('/v1/projects/:projectId/hvac-survey/stations', async (request) => {
+      const params = request.params as { projectId?: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const item = await service.upsertCoolingStation(
+        params.projectId ?? '',
+        parseCoolingStationInput(body),
+        request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.patch('/v1/projects/:projectId/hvac-survey/stations/:stationId', async (request) => {
+      const params = request.params as { projectId?: string; stationId?: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const item = await service.upsertCoolingStation(
+        params.projectId ?? '',
+        parseCoolingStationInput(body, params.stationId ?? ''),
+        request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.delete('/v1/projects/:projectId/hvac-survey/stations/:stationId', async (request) => {
+      const params = request.params as { projectId?: string; stationId?: string };
+      const item = await service.deleteCoolingStation(
+        params.projectId ?? '',
+        params.stationId ?? '',
+        request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.put('/v1/projects/:projectId/hvac-survey/equipment-assets', async (request) => {
+      const params = request.params as { projectId?: string };
+      const item = await service.upsertHvacEquipmentAssets(
+        params.projectId ?? '',
+        parseHvacEquipmentAssets(request.body),
+        request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.put('/v1/projects/:projectId/hvac-survey/monthly-profiles', async (request) => {
+      const params = request.params as { projectId?: string };
+      const item = await service.replaceMonthlyProfiles(
+        params.projectId ?? '',
+        parseHvacMonthlyProfiles(request.body),
+        request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.post('/v1/projects/:projectId/hvac-survey/evaluation/run', async (request) => {
+      const params = request.params as { projectId?: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const item = await service.runHvacEvaluation(
+        params.projectId ?? '',
+        parseRunHvacEvaluation(body),
         request.auth.userId ?? '',
       );
       return { item };

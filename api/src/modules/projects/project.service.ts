@@ -2,6 +2,9 @@ import { AppError } from '../../plugins/errors.js';
 import { buildSolutionCalculationResult } from './solution-calculator.js';
 import type {
   CreateProjectInput,
+  ProjectEquipmentMonthlyProfile,
+  ProjectHvacEquipmentAsset,
+  ProjectHvacSurveyWorkspace,
   ProjectAuditLogItem,
   ProjectListFilters,
   ProjectLeadSnapshot,
@@ -14,8 +17,10 @@ import type {
   UpdateProjectSolutionWorkspaceInput,
   ProjectStageCode,
   ProjectSurveyWorkspace,
+  RunHvacEvaluationInput,
   UpdateProjectInput,
   UpdateProjectStageInput,
+  UpsertCoolingStationInput,
 } from './project.schemas.js';
 
 function hasDualConfirmation(lead: ProjectLeadSnapshot) {
@@ -199,7 +204,130 @@ export class ProjectService {
       );
     }
 
+    const hvacWorkspace = await this.repo.getProjectHvacSurveyWorkspace(id);
+    if (!hvacWorkspace) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+    if (!hvacWorkspace.gateValidation.canComplete) {
+      throw new AppError(
+        409,
+        'PROJECT_HVAC_SURVEY_VALIDATION_FAILED',
+        'HVAC survey workspace is not ready to complete.',
+        {
+          errors: hvacWorkspace.gateValidation.errors,
+        },
+      );
+    }
+
     const item = await this.repo.completeProjectSurveyWorkspace(id, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async getProjectHvacSurveyWorkspace(projectId: string): Promise<ProjectHvacSurveyWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+
+    const item = await this.repo.getProjectHvacSurveyWorkspace(id);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async upsertCoolingStation(
+    projectId: string,
+    input: UpsertCoolingStationInput,
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+
+    const item = await this.repo.upsertCoolingStation(id, input, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async deleteCoolingStation(
+    projectId: string,
+    stationId: string,
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+    const targetStationId = stationId.trim();
+    if (!targetStationId) {
+      throw new AppError(400, 'PROJECT_HVAC_STATION_ID_REQUIRED', 'Cooling station id is required.');
+    }
+
+    const item = await this.repo.deleteCoolingStation(id, targetStationId, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async upsertHvacEquipmentAssets(
+    projectId: string,
+    input: ProjectHvacEquipmentAsset[],
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+
+    const item = await this.repo.upsertHvacEquipmentAssets(id, input, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async replaceMonthlyProfiles(
+    projectId: string,
+    input: ProjectEquipmentMonthlyProfile[],
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+
+    const item = await this.repo.replaceMonthlyProfiles(id, input, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async runHvacEvaluation(
+    projectId: string,
+    input: RunHvacEvaluationInput,
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+
+    const item = await this.repo.runHvacEvaluation(id, input, actorUserId);
     if (!item) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
     }

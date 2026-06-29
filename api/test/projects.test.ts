@@ -266,6 +266,57 @@ const PROJECT_HVAC_SURVEY_WORKSPACE: ProjectHvacSurveyWorkspace = {
   },
 };
 
+const PROJECT_HVAC_APPROVED_ASSET = {
+  id: 'asset-1',
+  projectId: 'project-1',
+  stationId: 'station-1',
+  sourceFileId: null,
+  deviceType: 'cooling_tower',
+  equipmentName: '冷却塔 1#',
+  brand: 'BAC',
+  model: 'CT-500',
+  quantity: 1,
+  ratedPowerKw: 30,
+  ratedCoolingCapacityKw: null,
+  ratedCop: null,
+  frequencyHz: 50,
+  headM: null,
+  flowRateM3h: null,
+  heatExchangeCapacityKw: 1800,
+  status: 'running',
+  reviewStatus: 'approved',
+  confidence: 0.92,
+  notes: '',
+  createdAt: '2026-04-14T09:00:00.000Z',
+  updatedAt: '2026-04-14T09:00:00.000Z',
+} as const;
+
+const PROJECT_HVAC_MONTHLY_PROFILES = Array.from({ length: 12 }, (_, index) => ({
+  id: `profile-${index + 1}`,
+  projectId: 'project-1',
+  equipmentAssetId: 'asset-1',
+  year: 2026,
+  month: index + 1,
+  runNum: 1,
+  monthDays: 30,
+  runDays: 20,
+  runDayHours: 10,
+  loadRatePct: 75,
+  operationStrategy: 'partial_year',
+  createdAt: '2026-04-14T09:00:00.000Z',
+  updatedAt: '2026-04-14T09:00:00.000Z',
+})) as ProjectHvacSurveyWorkspace['monthlyProfiles'];
+
+const PROJECT_HVAC_READY_SURVEY_WORKSPACE: ProjectHvacSurveyWorkspace = {
+  ...PROJECT_HVAC_SURVEY_WORKSPACE,
+  equipmentAssets: [PROJECT_HVAC_APPROVED_ASSET],
+  monthlyProfiles: PROJECT_HVAC_MONTHLY_PROFILES,
+  gateValidation: {
+    canComplete: true,
+    errors: [],
+  },
+};
+
 const PROJECT_SOLUTION_WORKSPACE: ProjectSolutionWorkspace = {
   projectId: 'project-1',
   technicalAssumptions: {
@@ -424,12 +475,12 @@ function createRepo(
     updateProjectStage: vi.fn(async () => PROJECT_DETAIL),
     getProjectAudit: vi.fn(async () => PROJECT_AUDIT),
     getProjectSurveyWorkspace: vi.fn(async () => PROJECT_SURVEY_WORKSPACE),
-    getProjectHvacSurveyWorkspace: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
-    upsertCoolingStation: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
-    deleteCoolingStation: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
-    upsertHvacEquipmentAssets: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
-    replaceMonthlyProfiles: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
-    runHvacEvaluation: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
+    getProjectHvacSurveyWorkspace: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
+    upsertCoolingStation: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
+    deleteCoolingStation: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
+    upsertHvacEquipmentAssets: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
+    replaceMonthlyProfiles: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
+    runHvacEvaluation: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
     updateProjectSurveyWorkspace: vi.fn(async () => PROJECT_SURVEY_WORKSPACE),
     completeProjectSurveyWorkspace: vi.fn(async () => PROJECT_SURVEY_WORKSPACE),
     getProjectSolutionWorkspace: vi.fn(async () => PROJECT_SOLUTION_WORKSPACE),
@@ -1001,6 +1052,8 @@ describe('project routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { getProjectHvacSurveyWorkspace: ReturnType<typeof vi.fn> }).getProjectHvacSurveyWorkspace)
+      .toHaveBeenCalledWith('project-1');
     expect((repo as unknown as { completeProjectSurveyWorkspace: ReturnType<typeof vi.fn> }).completeProjectSurveyWorkspace)
       .toHaveBeenCalledWith('project-1', 'pm-user-1');
     expect(response.json()).toEqual({
@@ -1039,6 +1092,272 @@ describe('project routes', () => {
         },
       },
     });
+  });
+
+  it('blocks survey completion when HVAC survey validation fails', async () => {
+    const repo = createRepo();
+    (repo as unknown as { getProjectHvacSurveyWorkspace: ReturnType<typeof vi.fn> }).getProjectHvacSurveyWorkspace
+      .mockResolvedValueOnce(PROJECT_HVAC_SURVEY_WORKSPACE);
+
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/projects/project-1/survey-complete',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((repo as unknown as { completeProjectSurveyWorkspace: ReturnType<typeof vi.fn> }).completeProjectSurveyWorkspace)
+      .not.toHaveBeenCalled();
+    expect(response.json()).toEqual({
+      error: {
+        code: 'PROJECT_HVAC_SURVEY_VALIDATION_FAILED',
+        message: 'HVAC survey workspace is not ready to complete.',
+        details: {
+          errors: PROJECT_HVAC_SURVEY_WORKSPACE.gateValidation.errors,
+        },
+      },
+    });
+  });
+
+  it('returns HVAC survey workspace for authenticated users', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/projects/project-1/hvac-survey',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { getProjectHvacSurveyWorkspace: ReturnType<typeof vi.fn> }).getProjectHvacSurveyWorkspace)
+      .toHaveBeenCalledWith('project-1');
+    expect(response.json()).toEqual({
+      item: PROJECT_HVAC_READY_SURVEY_WORKSPACE,
+    });
+  });
+
+  it('creates HVAC cooling stations for authenticated users', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/projects/project-1/hvac-survey/stations',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        name: '2# 冷冻站',
+        locationLabel: '动力站二层',
+        notes: '二期扩展',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { upsertCoolingStation: ReturnType<typeof vi.fn> }).upsertCoolingStation)
+      .toHaveBeenCalledWith(
+        'project-1',
+        {
+          id: undefined,
+          name: '2# 冷冻站',
+          locationLabel: '动力站二层',
+          notes: '二期扩展',
+        },
+        'pm-user-1',
+      );
+    expect(response.json()).toEqual({
+      item: PROJECT_HVAC_READY_SURVEY_WORKSPACE,
+    });
+  });
+
+  it('updates HVAC cooling stations for authenticated users', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/v1/projects/project-1/hvac-survey/stations/station-1',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        name: '1# 冷冻站',
+        locationLabel: '动力站一层',
+        notes: '已复核',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { upsertCoolingStation: ReturnType<typeof vi.fn> }).upsertCoolingStation)
+      .toHaveBeenCalledWith(
+        'project-1',
+        {
+          id: 'station-1',
+          name: '1# 冷冻站',
+          locationLabel: '动力站一层',
+          notes: '已复核',
+        },
+        'pm-user-1',
+      );
+  });
+
+  it('deletes HVAC cooling stations for authenticated users', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/v1/projects/project-1/hvac-survey/stations/station-1',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { deleteCoolingStation: ReturnType<typeof vi.fn> }).deleteCoolingStation)
+      .toHaveBeenCalledWith('project-1', 'station-1', 'pm-user-1');
+  });
+
+  it('replaces reviewed HVAC equipment assets for authenticated users', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/v1/projects/project-1/hvac-survey/equipment-assets',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: [
+        {
+          id: 'asset-1',
+          stationId: 'station-1',
+          deviceType: 'cooling_tower',
+          equipmentName: '冷却塔 1#',
+          brand: 'BAC',
+          model: 'CT-500',
+          quantity: 1,
+          ratedPowerKw: 30,
+          frequencyHz: 50,
+          heatExchangeCapacityKw: 1800,
+          status: 'running',
+          reviewStatus: 'approved',
+          confidence: 0.92,
+          notes: '',
+        },
+      ],
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { upsertHvacEquipmentAssets: ReturnType<typeof vi.fn> }).upsertHvacEquipmentAssets)
+      .toHaveBeenCalledWith(
+        'project-1',
+        [
+          {
+            ...PROJECT_HVAC_APPROVED_ASSET,
+            projectId: '',
+            createdAt: '',
+            updatedAt: '',
+          },
+        ],
+        'pm-user-1',
+      );
+  });
+
+  it('replaces HVAC monthly profiles for authenticated users', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/v1/projects/project-1/hvac-survey/monthly-profiles',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: PROJECT_HVAC_MONTHLY_PROFILES.slice(0, 2).map(({ createdAt, projectId, updatedAt, ...item }) => item),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { replaceMonthlyProfiles: ReturnType<typeof vi.fn> }).replaceMonthlyProfiles)
+      .toHaveBeenCalledWith(
+        'project-1',
+        PROJECT_HVAC_MONTHLY_PROFILES.slice(0, 2).map((item) => ({
+          ...item,
+          projectId: '',
+          createdAt: '',
+          updatedAt: '',
+        })),
+        'pm-user-1',
+      );
+  });
+
+  it('runs HVAC saving evaluation for authenticated users', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/projects/project-1/hvac-survey/evaluation/run',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        year: 2026,
+        savingMode: 'balanced',
+        electricityPricePerKwh: 0.82,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { runHvacEvaluation: ReturnType<typeof vi.fn> }).runHvacEvaluation)
+      .toHaveBeenCalledWith(
+        'project-1',
+        {
+          year: 2026,
+          savingMode: 'balanced',
+          electricityPricePerKwh: 0.82,
+        },
+        'pm-user-1',
+      );
   });
 
   it('returns solution workspace for authenticated users', async () => {
