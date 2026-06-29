@@ -2,14 +2,29 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type {
   ProjectAuditLogItem,
+  ProjectCoolingStation,
   ProjectDataGapItem,
   ProjectDetail,
+  ProjectEquipmentMonthlyProfile,
   ProjectEquipmentLedgerItem,
   ProjectHandoffItem,
+  ProjectHvacDeviceType,
+  ProjectHvacEquipmentAsset,
+  ProjectHvacEvaluation,
+  ProjectHvacEvaluationResult,
+  ProjectHvacOperationStrategy,
+  ProjectHvacReviewStatus,
+  ProjectHvacSavingMode,
+  ProjectHvacSurveyGateValidation,
+  ProjectHvacSurveyWorkspace,
   ProjectListFilters,
   ProjectLeadSnapshot,
   ProjectListItem,
+  ProjectOperationRecord,
   ProjectRepo,
+  ProjectSurveyExtractionStatus,
+  ProjectSurveyFile,
+  ProjectSurveyFileType,
   ProjectSurveyCompletionStatus,
   ProjectSurveyGateValidation,
   ProjectSurveyInfoCollection,
@@ -26,12 +41,18 @@ import type {
   ProjectStageGateSnapshot,
   ProjectStageItem,
   ProjectWorkflowStatus,
+  RunHvacEvaluationInput,
   UpdateProjectSolutionWorkspaceInput,
   UpdateProjectSurveyWorkspaceInput,
   UpdateProjectInput,
   UpdateProjectStageInput,
+  UpsertCoolingStationInput,
 } from './project.schemas.js';
 import { PROJECT_STAGE_CODES } from './project.schemas.js';
+import {
+  calculateHvacEvaluation,
+  type HvacSavingModeConfig,
+} from './hvac-survey-calculator.js';
 import { buildSolutionCalculationResult } from './solution-calculator.js';
 
 type LeadRow = {
@@ -126,6 +147,127 @@ type HandoffRow = {
   owner_user_id: string | null;
   due_at: string | null;
   payload: Record<string, unknown> | null;
+};
+
+type CoolingStationRow = {
+  id: string;
+  project_id: string;
+  name: string;
+  location_label: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type SurveyFileRow = {
+  id: string;
+  project_id: string;
+  station_id: string | null;
+  file_type: ProjectSurveyFileType;
+  file_name: string;
+  storage_bucket: string;
+  storage_path: string;
+  mime_type: string | null;
+  file_size: number | string | null;
+  extraction_status: ProjectSurveyExtractionStatus;
+  confidence: number | string | null;
+  error_message: string | null;
+  raw_extraction: Record<string, unknown> | null;
+  reviewed_payload: Record<string, unknown> | null;
+  created_by: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type HvacEquipmentAssetRow = {
+  id: string;
+  project_id: string;
+  station_id: string | null;
+  source_file_id: string | null;
+  device_type: ProjectHvacDeviceType;
+  equipment_name: string | null;
+  brand: string | null;
+  model: string | null;
+  quantity: number | string | null;
+  rated_power_kw: number | string | null;
+  rated_cooling_capacity_kw: number | string | null;
+  rated_cop: number | string | null;
+  frequency_hz: number | string | null;
+  head_m: number | string | null;
+  flow_rate_m3h: number | string | null;
+  heat_exchange_capacity_kw: number | string | null;
+  status: ProjectEquipmentLedgerItem['status'];
+  review_status: ProjectHvacReviewStatus;
+  confidence: number | string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type OperationRecordRow = {
+  id: string;
+  project_id: string;
+  station_id: string | null;
+  source_file_id: string | null;
+  record_date: string | null;
+  record_time: string | null;
+  shift: string | null;
+  operating_status: string | null;
+  operating_hours: number | string | null;
+  units_on_count: number | string | null;
+  operating_current_pct: number | string | null;
+  load_rate_pct: number | string | null;
+  measured_energy_kwh: number | string | null;
+  notes: string | null;
+  review_status: ProjectHvacReviewStatus;
+  confidence: number | string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type EquipmentMonthlyProfileRow = {
+  id: string;
+  project_id: string;
+  equipment_asset_id: string;
+  year: number | string;
+  month: number | string;
+  run_num: number | string;
+  month_days: number | string;
+  run_days: number | string;
+  run_day_hours: number | string;
+  load_rate_pct: number | string;
+  operation_strategy: ProjectHvacOperationStrategy;
+  created_at: string;
+  updated_at: string;
+};
+
+type HvacEvaluationRow = {
+  id: string;
+  project_id: string;
+  year: number | string;
+  saving_mode: ProjectHvacSavingMode;
+  result: Record<string, unknown> | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+type HvacSavingModeConfigRow = {
+  device_type: Exclude<ProjectHvacDeviceType, 'unknown'>;
+  avg_base: number | string;
+  rate1: number | string;
+  rate2: number | string;
+  rate3: number | string;
+  rate4: number | string;
+  rate5: number | string;
+  rate6: number | string;
+  rate7: number | string;
+  rate8: number | string;
+  rate9: number | string;
+  rate10: number | string;
+  rate11: number | string;
+  rate12: number | string;
 };
 
 type SolutionSnapshotRow = {
@@ -520,6 +662,158 @@ function mapHandoffItem(row: HandoffRow): ProjectHandoffItem {
   };
 }
 
+function mapCoolingStation(row: CoolingStationRow): ProjectCoolingStation {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    locationLabel: row.location_label ?? '',
+    notes: row.notes ?? '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapSurveyFile(row: SurveyFileRow): ProjectSurveyFile {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    stationId: row.station_id,
+    fileType: row.file_type,
+    fileName: row.file_name,
+    storageBucket: row.storage_bucket,
+    storagePath: row.storage_path,
+    mimeType: row.mime_type ?? '',
+    fileSize: parseNumber(row.file_size),
+    extractionStatus: row.extraction_status,
+    confidence: getNullableNumber(row.confidence),
+    errorMessage: row.error_message ?? '',
+    rawExtraction: row.raw_extraction ?? {},
+    reviewedPayload: row.reviewed_payload ?? {},
+    createdBy: row.created_by,
+    reviewedBy: row.reviewed_by,
+    reviewedAt: row.reviewed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapHvacEquipmentAsset(row: HvacEquipmentAssetRow): ProjectHvacEquipmentAsset {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    stationId: row.station_id,
+    sourceFileId: row.source_file_id,
+    deviceType: row.device_type,
+    equipmentName: row.equipment_name ?? '',
+    brand: row.brand ?? '',
+    model: row.model ?? '',
+    quantity: parseNumber(row.quantity) || 1,
+    ratedPowerKw: getNullableNumber(row.rated_power_kw),
+    ratedCoolingCapacityKw: getNullableNumber(row.rated_cooling_capacity_kw),
+    ratedCop: getNullableNumber(row.rated_cop),
+    frequencyHz: getNullableNumber(row.frequency_hz),
+    headM: getNullableNumber(row.head_m),
+    flowRateM3h: getNullableNumber(row.flow_rate_m3h),
+    heatExchangeCapacityKw: getNullableNumber(row.heat_exchange_capacity_kw),
+    status: row.status,
+    reviewStatus: row.review_status,
+    confidence: getNullableNumber(row.confidence),
+    notes: row.notes ?? '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapOperationRecord(row: OperationRecordRow): ProjectOperationRecord {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    stationId: row.station_id,
+    sourceFileId: row.source_file_id,
+    recordDate: row.record_date,
+    recordTime: row.record_time ?? '',
+    shift: row.shift ?? '',
+    operatingStatus: row.operating_status ?? '',
+    operatingHours: getNullableNumber(row.operating_hours),
+    unitsOnCount: getNullableNumber(row.units_on_count),
+    operatingCurrentPct: getNullableNumber(row.operating_current_pct),
+    loadRatePct: getNullableNumber(row.load_rate_pct),
+    measuredEnergyKwh: getNullableNumber(row.measured_energy_kwh),
+    notes: row.notes ?? '',
+    reviewStatus: row.review_status,
+    confidence: getNullableNumber(row.confidence),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapEquipmentMonthlyProfile(row: EquipmentMonthlyProfileRow): ProjectEquipmentMonthlyProfile {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    equipmentAssetId: row.equipment_asset_id,
+    year: parseNumber(row.year),
+    month: parseNumber(row.month),
+    runNum: parseNumber(row.run_num),
+    monthDays: parseNumber(row.month_days),
+    runDays: parseNumber(row.run_days),
+    runDayHours: parseNumber(row.run_day_hours),
+    loadRatePct: parseNumber(row.load_rate_pct),
+    operationStrategy: row.operation_strategy,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function emptyHvacEvaluationResult(): ProjectHvacEvaluationResult {
+  return {
+    yearEnergyBeforeKwh: 0,
+    yearEnergyAfterKwh: 0,
+    yearSavingEnergyKwh: 0,
+    yearSavingCostCny: 0,
+    yearSavingRate: 0,
+    byDeviceType: {},
+    monthTrends: [],
+  };
+}
+
+function mapHvacEvaluation(row: HvacEvaluationRow): ProjectHvacEvaluation {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    year: parseNumber(row.year),
+    savingMode: row.saving_mode,
+    result: {
+      ...emptyHvacEvaluationResult(),
+      ...(row.result ?? {}),
+    } as ProjectHvacEvaluationResult,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+function mapHvacSavingModeConfig(row: HvacSavingModeConfigRow): HvacSavingModeConfig {
+  return {
+    deviceType: row.device_type,
+    avgBase: parseNumber(row.avg_base),
+    monthlyRates: [
+      parseNumber(row.rate1),
+      parseNumber(row.rate2),
+      parseNumber(row.rate3),
+      parseNumber(row.rate4),
+      parseNumber(row.rate5),
+      parseNumber(row.rate6),
+      parseNumber(row.rate7),
+      parseNumber(row.rate8),
+      parseNumber(row.rate9),
+      parseNumber(row.rate10),
+      parseNumber(row.rate11),
+      parseNumber(row.rate12),
+    ],
+  };
+}
+
 function mapSolutionSnapshot(row: SolutionSnapshotRow): ProjectSolutionSnapshot {
   const calculation = row.calculation_summary ?? {};
   const readCalculationNumber = (key: keyof ProjectSolutionCalculationSummary) => {
@@ -582,6 +876,65 @@ function buildSurveyGateValidation(
   }
   if (!handoffs.some((item) => item.fromStage === 'survey' && item.toStage === 'proposal' && ['ready', 'completed', 'waived'].includes(item.status))) {
     errors.push('survey to proposal handoff is required');
+  }
+
+  return {
+    canComplete: errors.length === 0,
+    errors,
+  };
+}
+
+export function buildHvacSurveyGateValidation(input: {
+  infoCollection: ProjectSurveyInfoCollection;
+  surveyRecord: ProjectSurveyRecord;
+  stations: ProjectCoolingStation[];
+  equipmentAssets: ProjectHvacEquipmentAsset[];
+  monthlyProfiles: ProjectEquipmentMonthlyProfile[];
+  dataGaps: ProjectDataGapItem[];
+  handoffs: ProjectHandoffItem[];
+}): ProjectHvacSurveyGateValidation {
+  const baseGate = buildSurveyGateValidation(
+    input.infoCollection,
+    input.surveyRecord,
+    input.equipmentAssets.map((asset) => ({
+      id: asset.id,
+      equipmentName: asset.equipmentName,
+      equipmentType: asset.deviceType,
+      locationLabel: asset.stationId ?? '',
+      quantity: asset.quantity,
+      capacityRt: asset.ratedCoolingCapacityKw ? asset.ratedCoolingCapacityKw / 3.517 : 0,
+      status: asset.status,
+      notes: asset.notes,
+    })),
+    input.dataGaps,
+    input.handoffs,
+  );
+  const errors = [...baseGate.errors];
+  const approvedAssets = input.equipmentAssets.filter((asset) => asset.reviewStatus === 'approved');
+
+  if (input.stations.length === 0) {
+    errors.push('at least one cooling station is required');
+  }
+  if (approvedAssets.length === 0) {
+    errors.push('approved HVAC equipment is required');
+  }
+
+  for (const asset of approvedAssets) {
+    const label = asset.equipmentName || asset.model || asset.id;
+    if (asset.deviceType === 'unknown') {
+      errors.push(`equipment ${label} deviceType must be known`);
+    }
+    if (!asset.model.trim()) {
+      errors.push(`equipment ${label} model is required`);
+    }
+    if ((asset.ratedPowerKw ?? 0) <= 0) {
+      errors.push(`equipment ${label} ratedPowerKw must be greater than 0`);
+    }
+
+    const profileCount = input.monthlyProfiles.filter((profile) => profile.equipmentAssetId === asset.id).length;
+    if (profileCount !== 12) {
+      errors.push(`equipment ${label} requires 12 monthly profiles`);
+    }
   }
 
   return {
@@ -886,6 +1239,162 @@ async function getProjectSurveyWorkspace(
   };
 }
 
+async function getCoolingStationRows(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+): Promise<ProjectCoolingStation[]> {
+  const { data, error } = await supabaseAdmin
+    .from('project_cooling_stations')
+    .select('id, project_id, name, location_label, notes, created_at, updated_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((item) => mapCoolingStation(item as CoolingStationRow));
+}
+
+async function getSurveyFileRows(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+): Promise<ProjectSurveyFile[]> {
+  const { data, error } = await supabaseAdmin
+    .from('project_survey_files')
+    .select('id, project_id, station_id, file_type, file_name, storage_bucket, storage_path, mime_type, file_size, extraction_status, confidence, error_message, raw_extraction, reviewed_payload, created_by, reviewed_by, reviewed_at, created_at, updated_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((item) => mapSurveyFile(item as SurveyFileRow));
+}
+
+async function getHvacEquipmentAssetRows(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+): Promise<ProjectHvacEquipmentAsset[]> {
+  const { data, error } = await supabaseAdmin
+    .from('project_hvac_equipment_assets')
+    .select('id, project_id, station_id, source_file_id, device_type, equipment_name, brand, model, quantity, rated_power_kw, rated_cooling_capacity_kw, rated_cop, frequency_hz, head_m, flow_rate_m3h, heat_exchange_capacity_kw, status, review_status, confidence, notes, created_at, updated_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((item) => mapHvacEquipmentAsset(item as HvacEquipmentAssetRow));
+}
+
+async function getOperationRecordRows(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+): Promise<ProjectOperationRecord[]> {
+  const { data, error } = await supabaseAdmin
+    .from('project_operation_records')
+    .select('id, project_id, station_id, source_file_id, record_date, record_time, shift, operating_status, operating_hours, units_on_count, operating_current_pct, load_rate_pct, measured_energy_kwh, notes, review_status, confidence, created_at, updated_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((item) => mapOperationRecord(item as OperationRecordRow));
+}
+
+async function getEquipmentMonthlyProfileRows(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+): Promise<ProjectEquipmentMonthlyProfile[]> {
+  const { data, error } = await supabaseAdmin
+    .from('project_equipment_monthly_profiles')
+    .select('id, project_id, equipment_asset_id, year, month, run_num, month_days, run_days, run_day_hours, load_rate_pct, operation_strategy, created_at, updated_at')
+    .eq('project_id', projectId)
+    .order('year', { ascending: false })
+    .order('month', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((item) => mapEquipmentMonthlyProfile(item as EquipmentMonthlyProfileRow));
+}
+
+async function getLatestHvacEvaluation(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+): Promise<ProjectHvacEvaluation | null> {
+  const { data, error } = await supabaseAdmin
+    .from('project_hvac_evaluations')
+    .select('id, project_id, year, saving_mode, result, created_by, created_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ? mapHvacEvaluation(data as HvacEvaluationRow) : null;
+}
+
+async function getProjectHvacSurveyWorkspace(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+): Promise<ProjectHvacSurveyWorkspace | null> {
+  const project = await getProjectRow(supabaseAdmin, projectId);
+  if (!project) {
+    return null;
+  }
+
+  const [
+    stations,
+    files,
+    equipmentAssets,
+    operationRecords,
+    monthlyProfiles,
+    latestEvaluation,
+    dataGaps,
+    handoffs,
+  ] = await Promise.all([
+    getCoolingStationRows(supabaseAdmin, projectId),
+    getSurveyFileRows(supabaseAdmin, projectId),
+    getHvacEquipmentAssetRows(supabaseAdmin, projectId),
+    getOperationRecordRows(supabaseAdmin, projectId),
+    getEquipmentMonthlyProfileRows(supabaseAdmin, projectId),
+    getLatestHvacEvaluation(supabaseAdmin, projectId),
+    getDataGapRows(supabaseAdmin, projectId),
+    getHandoffRows(supabaseAdmin, projectId),
+  ]);
+
+  const gateValidation = buildHvacSurveyGateValidation({
+    infoCollection: getSurveyInfoCollection(project.phase_data),
+    surveyRecord: getSurveyRecord(project.phase_data),
+    stations,
+    equipmentAssets,
+    monthlyProfiles,
+    dataGaps,
+    handoffs,
+  });
+
+  return {
+    projectId,
+    stations,
+    files,
+    equipmentAssets,
+    operationRecords,
+    monthlyProfiles,
+    latestEvaluation,
+    gateValidation,
+  };
+}
+
 async function getLatestSolutionSnapshot(
   supabaseAdmin: SupabaseClient,
   projectId: string,
@@ -1103,6 +1612,257 @@ async function insertSolutionSnapshotRecord(
     snapshot: mapSolutionSnapshot(data as SolutionSnapshotRow),
     nextVersion,
   };
+}
+
+function validateCoolingStationInput(input: UpsertCoolingStationInput) {
+  if (!input.name.trim()) {
+    throw new Error('cooling station name is required');
+  }
+}
+
+function validateHvacEquipmentAssets(items: ProjectHvacEquipmentAsset[]) {
+  for (const item of items) {
+    if (!item.equipmentName.trim() && !item.model.trim()) {
+      throw new Error('equipmentName or model is required');
+    }
+    if (item.deviceType === 'unknown' && item.reviewStatus === 'approved') {
+      throw new Error('approved equipment deviceType must be known');
+    }
+    if ((item.ratedPowerKw ?? 0) <= 0 && item.reviewStatus === 'approved') {
+      throw new Error('approved equipment ratedPowerKw must be greater than 0');
+    }
+    if (item.quantity <= 0) {
+      throw new Error('equipment quantity must be greater than 0');
+    }
+  }
+}
+
+function validateMonthlyProfiles(items: ProjectEquipmentMonthlyProfile[]) {
+  for (const item of items) {
+    if (item.year < 2000 || item.year > 2100) {
+      throw new Error('monthly profile year is invalid');
+    }
+    if (item.month < 1 || item.month > 12) {
+      throw new Error('monthly profile month must be between 1 and 12');
+    }
+    if (item.monthDays < 1 || item.monthDays > 31) {
+      throw new Error('monthly profile monthDays must be between 1 and 31');
+    }
+    if (item.runDays < 0 || item.runDays > item.monthDays) {
+      throw new Error('monthly profile runDays must be between 0 and monthDays');
+    }
+    if (item.runDayHours < 0 || item.runDayHours > 24) {
+      throw new Error('monthly profile runDayHours must be between 0 and 24');
+    }
+    if (item.loadRatePct < 0 || item.loadRatePct > 100) {
+      throw new Error('monthly profile loadRatePct must be between 0 and 100');
+    }
+  }
+}
+
+async function getSavingModeConfigs(
+  supabaseAdmin: SupabaseClient,
+  savingMode: ProjectHvacSavingMode,
+): Promise<HvacSavingModeConfig[]> {
+  const { data, error } = await supabaseAdmin
+    .from('hvac_saving_mode_configs')
+    .select('device_type, avg_base, rate1, rate2, rate3, rate4, rate5, rate6, rate7, rate8, rate9, rate10, rate11, rate12')
+    .eq('saving_mode', savingMode);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((item) => mapHvacSavingModeConfig(item as HvacSavingModeConfigRow));
+}
+
+async function upsertCoolingStationRecord(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  input: UpsertCoolingStationInput,
+) {
+  validateCoolingStationInput(input);
+
+  if (input.id) {
+    const { error } = await supabaseAdmin
+      .from('project_cooling_stations')
+      .update({
+        name: input.name.trim(),
+        location_label: input.locationLabel?.trim() ?? '',
+        notes: input.notes?.trim() ?? '',
+      })
+      .eq('id', input.id)
+      .eq('project_id', projectId);
+
+    if (error) {
+      throw error;
+    }
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('project_cooling_stations')
+    .insert({
+      project_id: projectId,
+      name: input.name.trim(),
+      location_label: input.locationLabel?.trim() ?? '',
+      notes: input.notes?.trim() ?? '',
+    });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function replaceHvacEquipmentAssets(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  items: ProjectHvacEquipmentAsset[],
+) {
+  validateHvacEquipmentAssets(items);
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('project_hvac_equipment_assets')
+    .delete()
+    .eq('project_id', projectId);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  if (items.length === 0) {
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('project_hvac_equipment_assets')
+    .insert(items.map((item) => ({
+      id: item.id || undefined,
+      project_id: projectId,
+      station_id: item.stationId,
+      source_file_id: item.sourceFileId,
+      device_type: item.deviceType,
+      equipment_name: item.equipmentName,
+      brand: item.brand,
+      model: item.model,
+      quantity: item.quantity,
+      rated_power_kw: item.ratedPowerKw,
+      rated_cooling_capacity_kw: item.ratedCoolingCapacityKw,
+      rated_cop: item.ratedCop,
+      frequency_hz: item.frequencyHz,
+      head_m: item.headM,
+      flow_rate_m3h: item.flowRateM3h,
+      heat_exchange_capacity_kw: item.heatExchangeCapacityKw,
+      status: item.status,
+      review_status: item.reviewStatus,
+      confidence: item.confidence,
+      notes: item.notes,
+    })));
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function replaceProjectMonthlyProfiles(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  items: ProjectEquipmentMonthlyProfile[],
+) {
+  validateMonthlyProfiles(items);
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('project_equipment_monthly_profiles')
+    .delete()
+    .eq('project_id', projectId);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  if (items.length === 0) {
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('project_equipment_monthly_profiles')
+    .insert(items.map((item) => ({
+      id: item.id || undefined,
+      project_id: projectId,
+      equipment_asset_id: item.equipmentAssetId,
+      year: item.year,
+      month: item.month,
+      run_num: item.runNum,
+      month_days: item.monthDays,
+      run_days: item.runDays,
+      run_day_hours: item.runDayHours,
+      load_rate_pct: item.loadRatePct,
+      operation_strategy: item.operationStrategy,
+    })));
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function insertHvacEvaluationRecord(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  input: RunHvacEvaluationInput,
+  actorUserId: string,
+) {
+  const project = await getProjectRow(supabaseAdmin, projectId);
+  if (!project) {
+    return;
+  }
+
+  const electricityPricePerKwh = input.electricityPricePerKwh
+    ?? getSolutionTechnicalAssumptions(project.phase_data).electricityPricePerKwh
+    ?? 0;
+  if (electricityPricePerKwh <= 0) {
+    throw new Error('electricityPricePerKwh must be greater than 0');
+  }
+
+  const [equipmentAssets, monthlyProfiles, savingConfigs] = await Promise.all([
+    getHvacEquipmentAssetRows(supabaseAdmin, projectId),
+    getEquipmentMonthlyProfileRows(supabaseAdmin, projectId),
+    getSavingModeConfigs(supabaseAdmin, input.savingMode),
+  ]);
+  const result = calculateHvacEvaluation({
+    electricityPricePerKwh,
+    equipmentAssets: equipmentAssets
+      .filter((asset) => asset.reviewStatus === 'approved')
+      .map((asset) => ({
+        id: asset.id,
+        deviceType: asset.deviceType,
+        ratedPowerKw: asset.ratedPowerKw,
+      })),
+    monthlyProfiles: monthlyProfiles
+      .filter((profile) => profile.year === input.year)
+      .map((profile) => ({
+        equipmentAssetId: profile.equipmentAssetId,
+        month: profile.month,
+        runNum: profile.runNum,
+        runDays: profile.runDays,
+        runDayHours: profile.runDayHours,
+        loadRatePct: profile.loadRatePct,
+      })),
+    savingConfigs,
+  });
+
+  const { error } = await supabaseAdmin
+    .from('project_hvac_evaluations')
+    .insert({
+      project_id: projectId,
+      year: input.year,
+      saving_mode: input.savingMode,
+      result,
+      created_by: actorUserId || null,
+    });
+
+  if (error) {
+    throw error;
+  }
 }
 
 export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
@@ -1403,6 +2163,91 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
 
     async getProjectSurveyWorkspace(projectId) {
       return getProjectSurveyWorkspace(supabaseAdmin, projectId);
+    },
+
+    async getProjectHvacSurveyWorkspace(projectId) {
+      return getProjectHvacSurveyWorkspace(supabaseAdmin, projectId);
+    },
+
+    async upsertCoolingStation(projectId, input, actorUserId) {
+      const existing = await getProjectRow(supabaseAdmin, projectId);
+      if (!existing) {
+        return null;
+      }
+
+      await upsertCoolingStationRecord(supabaseAdmin, projectId, input);
+      await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.station.upserted', actorUserId, {
+        stationId: input.id ?? null,
+        name: input.name,
+      });
+
+      return getProjectHvacSurveyWorkspace(supabaseAdmin, projectId);
+    },
+
+    async deleteCoolingStation(projectId, stationId, actorUserId) {
+      const existing = await getProjectRow(supabaseAdmin, projectId);
+      if (!existing) {
+        return null;
+      }
+
+      const { error } = await supabaseAdmin
+        .from('project_cooling_stations')
+        .delete()
+        .eq('id', stationId)
+        .eq('project_id', projectId);
+
+      if (error) {
+        throw error;
+      }
+
+      await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.station.deleted', actorUserId, {
+        stationId,
+      });
+
+      return getProjectHvacSurveyWorkspace(supabaseAdmin, projectId);
+    },
+
+    async upsertHvacEquipmentAssets(projectId, input, actorUserId) {
+      const existing = await getProjectRow(supabaseAdmin, projectId);
+      if (!existing) {
+        return null;
+      }
+
+      await replaceHvacEquipmentAssets(supabaseAdmin, projectId, input);
+      await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.equipment.updated', actorUserId, {
+        count: input.length,
+      });
+
+      return getProjectHvacSurveyWorkspace(supabaseAdmin, projectId);
+    },
+
+    async replaceMonthlyProfiles(projectId, input, actorUserId) {
+      const existing = await getProjectRow(supabaseAdmin, projectId);
+      if (!existing) {
+        return null;
+      }
+
+      await replaceProjectMonthlyProfiles(supabaseAdmin, projectId, input);
+      await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.monthlyProfiles.replaced', actorUserId, {
+        count: input.length,
+      });
+
+      return getProjectHvacSurveyWorkspace(supabaseAdmin, projectId);
+    },
+
+    async runHvacEvaluation(projectId, input, actorUserId) {
+      const existing = await getProjectRow(supabaseAdmin, projectId);
+      if (!existing) {
+        return null;
+      }
+
+      await insertHvacEvaluationRecord(supabaseAdmin, projectId, input, actorUserId);
+      await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.evaluation.run', actorUserId, {
+        year: input.year,
+        savingMode: input.savingMode,
+      });
+
+      return getProjectHvacSurveyWorkspace(supabaseAdmin, projectId);
     },
 
     async updateProjectSurveyWorkspace(projectId, input, actorUserId) {

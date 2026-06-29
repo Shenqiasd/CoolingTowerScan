@@ -429,6 +429,19 @@ export interface ProjectHvacSurveyWorkspace {
   gateValidation: ProjectHvacSurveyGateValidation;
 }
 
+export interface UpsertCoolingStationInput {
+  id?: string;
+  name: string;
+  locationLabel?: string;
+  notes?: string;
+}
+
+export interface RunHvacEvaluationInput {
+  year: number;
+  savingMode: ProjectHvacSavingMode;
+  electricityPricePerKwh?: number | null;
+}
+
 export interface ProjectSolutionTechnicalAssumptions {
   baselineLoadRt: number | null;
   targetLoadRt: number | null;
@@ -546,6 +559,28 @@ export interface ProjectRepo {
   ): Promise<ProjectDetail | null>;
   getProjectAudit(projectId: string): Promise<ProjectAuditLogItem[]>;
   getProjectSurveyWorkspace(projectId: string): Promise<ProjectSurveyWorkspace | null>;
+  getProjectHvacSurveyWorkspace(projectId: string): Promise<ProjectHvacSurveyWorkspace | null>;
+  upsertCoolingStation(
+    projectId: string,
+    input: UpsertCoolingStationInput,
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace | null>;
+  deleteCoolingStation(projectId: string, stationId: string, actorUserId: string): Promise<ProjectHvacSurveyWorkspace | null>;
+  upsertHvacEquipmentAssets(
+    projectId: string,
+    input: ProjectHvacEquipmentAsset[],
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace | null>;
+  replaceMonthlyProfiles(
+    projectId: string,
+    input: ProjectEquipmentMonthlyProfile[],
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace | null>;
+  runHvacEvaluation(
+    projectId: string,
+    input: RunHvacEvaluationInput,
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace | null>;
   updateProjectSurveyWorkspace(
     projectId: string,
     input: UpdateProjectSurveyWorkspaceInput,

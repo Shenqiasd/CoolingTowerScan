@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
 import type { AppEnv } from '../src/config/env.js';
+import { buildHvacSurveyGateValidation } from '../src/modules/projects/project.repo.js';
 import type {
   ProjectDetail,
   ProjectAuditLogItem,
@@ -423,6 +424,12 @@ function createRepo(
     updateProjectStage: vi.fn(async () => PROJECT_DETAIL),
     getProjectAudit: vi.fn(async () => PROJECT_AUDIT),
     getProjectSurveyWorkspace: vi.fn(async () => PROJECT_SURVEY_WORKSPACE),
+    getProjectHvacSurveyWorkspace: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
+    upsertCoolingStation: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
+    deleteCoolingStation: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
+    upsertHvacEquipmentAssets: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
+    replaceMonthlyProfiles: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
+    runHvacEvaluation: vi.fn(async () => PROJECT_HVAC_SURVEY_WORKSPACE),
     updateProjectSurveyWorkspace: vi.fn(async () => PROJECT_SURVEY_WORKSPACE),
     completeProjectSurveyWorkspace: vi.fn(async () => PROJECT_SURVEY_WORKSPACE),
     getProjectSolutionWorkspace: vi.fn(async () => PROJECT_SOLUTION_WORKSPACE),
@@ -475,6 +482,132 @@ describe('project routes', () => {
     expect(PROJECT_HVAC_SURVEY_WORKSPACE.equipmentAssets).toEqual([]);
     expect(PROJECT_HVAC_SURVEY_WORKSPACE.monthlyProfiles).toEqual([]);
     expect(PROJECT_HVAC_SURVEY_WORKSPACE.gateValidation.canComplete).toBe(false);
+  });
+
+  it('blocks HVAC survey completion until station, approved equipment, monthly model, gaps, and handoff are ready', () => {
+    const gate = buildHvacSurveyGateValidation({
+      infoCollection: PROJECT_SURVEY_WORKSPACE.infoCollection,
+      surveyRecord: PROJECT_SURVEY_WORKSPACE.surveyRecord,
+      stations: [],
+      equipmentAssets: [
+        {
+          id: 'asset-unknown',
+          projectId: 'project-1',
+          stationId: null,
+          sourceFileId: null,
+          deviceType: 'unknown',
+          equipmentName: '未知设备',
+          brand: '',
+          model: '',
+          quantity: 1,
+          ratedPowerKw: null,
+          ratedCoolingCapacityKw: null,
+          ratedCop: null,
+          frequencyHz: null,
+          headM: null,
+          flowRateM3h: null,
+          heatExchangeCapacityKw: null,
+          status: 'running',
+          reviewStatus: 'approved',
+          confidence: null,
+          notes: '',
+          createdAt: '2026-04-14T09:00:00.000Z',
+          updatedAt: '2026-04-14T09:00:00.000Z',
+        },
+      ],
+      monthlyProfiles: [],
+      dataGaps: [
+        {
+          id: 'gap-missing-1',
+          stageCode: 'survey',
+          gapType: 'missing_info',
+          title: '运行电参缺失',
+          detail: '',
+          status: 'open',
+          ownerUserId: null,
+          dueAt: null,
+          waiverReason: '',
+        },
+      ],
+      handoffs: [
+        {
+          id: 'handoff-pending',
+          fromStage: 'survey',
+          toStage: 'proposal',
+          title: '交接方案',
+          detail: '',
+          status: 'pending',
+          ownerUserId: null,
+          dueAt: null,
+          payload: {},
+        },
+      ],
+    });
+
+    expect(gate.canComplete).toBe(false);
+    expect(gate.errors).toContain('at least one cooling station is required');
+    expect(gate.errors).toContain('equipment 未知设备 deviceType must be known');
+    expect(gate.errors).toContain('equipment 未知设备 model is required');
+    expect(gate.errors).toContain('equipment 未知设备 ratedPowerKw must be greater than 0');
+    expect(gate.errors).toContain('equipment 未知设备 requires 12 monthly profiles');
+    expect(gate.errors).toContain('open missing_info gaps must be resolved or waived');
+    expect(gate.errors).toContain('survey to proposal handoff is required');
+  });
+
+  it('allows HVAC survey completion when approved assets have a complete 12 month model', () => {
+    const gate = buildHvacSurveyGateValidation({
+      infoCollection: PROJECT_SURVEY_WORKSPACE.infoCollection,
+      surveyRecord: PROJECT_SURVEY_WORKSPACE.surveyRecord,
+      stations: PROJECT_HVAC_SURVEY_WORKSPACE.stations,
+      equipmentAssets: [
+        {
+          id: 'asset-1',
+          projectId: 'project-1',
+          stationId: 'station-1',
+          sourceFileId: null,
+          deviceType: 'cooling_tower',
+          equipmentName: '冷却塔 1#',
+          brand: 'BAC',
+          model: 'CT-500',
+          quantity: 1,
+          ratedPowerKw: 30,
+          ratedCoolingCapacityKw: null,
+          ratedCop: null,
+          frequencyHz: 50,
+          headM: null,
+          flowRateM3h: null,
+          heatExchangeCapacityKw: 1800,
+          status: 'running',
+          reviewStatus: 'approved',
+          confidence: 0.92,
+          notes: '',
+          createdAt: '2026-04-14T09:00:00.000Z',
+          updatedAt: '2026-04-14T09:00:00.000Z',
+        },
+      ],
+      monthlyProfiles: Array.from({ length: 12 }, (_, index) => ({
+        id: `profile-${index + 1}`,
+        projectId: 'project-1',
+        equipmentAssetId: 'asset-1',
+        year: 2026,
+        month: index + 1,
+        runNum: 1,
+        monthDays: 30,
+        runDays: 20,
+        runDayHours: 10,
+        loadRatePct: 75,
+        operationStrategy: 'partial_year',
+        createdAt: '2026-04-14T09:00:00.000Z',
+        updatedAt: '2026-04-14T09:00:00.000Z',
+      })),
+      dataGaps: PROJECT_SURVEY_WORKSPACE.dataGaps,
+      handoffs: PROJECT_SURVEY_WORKSPACE.handoffs,
+    });
+
+    expect(gate).toEqual({
+      canComplete: true,
+      errors: [],
+    });
   });
 
   it('rejects unauthenticated project creation', async () => {
