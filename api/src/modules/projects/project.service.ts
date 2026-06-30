@@ -2,6 +2,7 @@ import { AppError } from '../../plugins/errors.js';
 import { buildSolutionCalculationResult } from './solution-calculator.js';
 import type {
   CreateProjectInput,
+  CreateProjectSurveyFileInput,
   ProjectEquipmentMonthlyProfile,
   ProjectHvacEquipmentAsset,
   ProjectHvacSurveyWorkspace,
@@ -17,6 +18,7 @@ import type {
   UpdateProjectSolutionWorkspaceInput,
   ProjectStageCode,
   ProjectSurveyWorkspace,
+  ReviewProjectSurveyFileInput,
   RunHvacEvaluationInput,
   UpdateProjectInput,
   UpdateProjectStageInput,
@@ -198,22 +200,6 @@ export class ProjectService {
       throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
     }
 
-    const current = await this.repo.getProjectSurveyWorkspace(id);
-    if (!current) {
-      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
-    }
-
-    if (!current.gateValidation.canComplete) {
-      throw new AppError(
-        409,
-        'PROJECT_SURVEY_VALIDATION_FAILED',
-        'Survey workspace is not ready to complete.',
-        {
-          errors: current.gateValidation.errors,
-        },
-      );
-    }
-
     const hvacWorkspace = await this.repo.getProjectHvacSurveyWorkspace(id);
     if (!hvacWorkspace) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
@@ -284,6 +270,47 @@ export class ProjectService {
     }
 
     const item = await this.repo.deleteCoolingStation(id, targetStationId, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async createSurveyFile(
+    projectId: string,
+    input: CreateProjectSurveyFileInput,
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+
+    const item = await this.repo.createSurveyFile(id, input, actorUserId);
+    if (!item) {
+      throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
+    }
+
+    return item;
+  }
+
+  async reviewSurveyFile(
+    projectId: string,
+    fileId: string,
+    input: ReviewProjectSurveyFileInput,
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace> {
+    const id = projectId.trim();
+    if (!id) {
+      throw new AppError(400, 'PROJECT_ID_REQUIRED', 'Project id is required.');
+    }
+    const targetFileId = fileId.trim();
+    if (!targetFileId) {
+      throw new AppError(400, 'PROJECT_SURVEY_FILE_ID_REQUIRED', 'Survey file id is required.');
+    }
+
+    const item = await this.repo.reviewSurveyFile(id, targetFileId, input, actorUserId);
     if (!item) {
       throw new AppError(404, 'PROJECT_NOT_FOUND', 'Project not found.');
     }

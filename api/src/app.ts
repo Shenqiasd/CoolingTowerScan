@@ -40,6 +40,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const env = options.env ?? loadEnv();
   const app = Fastify({
     logger: false,
+    bodyLimit: 25 * 1024 * 1024,
   });
 
   app.decorate('appEnv', env);

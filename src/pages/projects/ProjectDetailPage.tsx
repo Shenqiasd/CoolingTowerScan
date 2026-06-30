@@ -817,8 +817,7 @@ export default function ProjectDetailPage() {
       : ['基础探勘调研尚未加载，无法完成阶段。'],
   };
   const canCompleteSurvey = Boolean(
-    surveyGateValidation.canComplete
-    && hvacSurveyWorkspace?.gateValidation.canComplete,
+    hvacSurveyWorkspace?.gateValidation.canComplete,
   );
   const hvacSolutionCalculation = hvacSurveyWorkspace?.latestEvaluation
     ? buildSolutionCalculationSummaryFromHvacEvaluationResult(hvacSurveyWorkspace.latestEvaluation.result)

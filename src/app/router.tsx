@@ -5,7 +5,7 @@ import AppShell from './layouts/AppShell';
 export default function AppRouter() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/discovery/detection" replace />} />
+      <Route path="/" element={<Navigate to="/projects" replace />} />
       <Route path="/discovery/screenshot" element={<AppShell />} />
       <Route path="/discovery/detection" element={<AppShell />} />
       <Route path="/discovery/results" element={<AppShell />} />
@@ -15,7 +15,7 @@ export default function AppRouter() {
       <Route path="/leads/:leadId" element={<AppShell />} />
       <Route path="/projects" element={<AppShell />} />
       <Route path="/projects/:projectId" element={<AppShell />} />
-      <Route path="*" element={<Navigate to="/discovery/detection" replace />} />
+      <Route path="*" element={<Navigate to="/projects" replace />} />
     </Routes>
   );
 }

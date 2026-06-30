@@ -87,7 +87,7 @@ function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
           </div>
           <div>
             <h1 className="text-base font-semibold">空调调研智能体平台</h1>
-            <p className="mt-1 text-xs text-slate-500">登录后进入线索发现与踏勘调研工作台</p>
+            <p className="mt-1 text-xs text-slate-500">登录后进入项目概览与踏勘调研工作台</p>
           </div>
         </div>
 
@@ -232,9 +232,18 @@ function AuthenticatedAppShell({ onLogout }: { onLogout: () => void }) {
   const isDashboard = activeView === 'dashboard';
   const isQualificationView = activeView === 'candidates' || activeView === 'leads';
   const isProjectDetailView = location.pathname.startsWith('/projects/');
-  const requestedProjectPhase = isDashboard && !isProjectDetailView
+  const projectSearchParams = new URLSearchParams(location.search);
+  const hasSurveyModuleParam = projectSearchParams.has('module');
+  const hasProjectPhaseParam = projectSearchParams.has('phase');
+  const isSurveyWorkflowRoute = isDashboard
+    && !isProjectDetailView
+    && (hasSurveyModuleParam || !hasProjectPhaseParam);
+  const requestedProjectPhase = isDashboard && !isProjectDetailView && !hasSurveyModuleParam
     ? getProjectPhaseFromSearch(location.search)
     : '';
+  const activeSurveyWorkflow = isSurveyWorkflowRoute
+    ? getSurveyWorkflowFromSearch(location.search)
+    : null;
 
   const {
     session,
@@ -287,6 +296,7 @@ function AuthenticatedAppShell({ onLogout }: { onLogout: () => void }) {
     acc[phase] = projects.filter((project) => project.current_phase === phase).length;
     return acc;
   }, {} as Record<SopPhase, number>);
+  projectCounts.survey = projects.length;
 
   const handleDataImported = useCallback(() => {
     refresh();
@@ -395,8 +405,8 @@ function AuthenticatedAppShell({ onLogout }: { onLogout: () => void }) {
   }, [navigate, setPhaseFilter]);
 
   const handleSurveyWorkflowSelect = useCallback((view: SurveyWorkflowView) => {
-    setPhaseFilter('survey');
-    navigate(`/projects?phase=survey&module=${view}`);
+    setPhaseFilter('');
+    navigate(view === 'overview' ? '/projects' : `/projects?module=${view}`);
   }, [navigate, setPhaseFilter]);
 
   const handleProjectPhaseFilter = useCallback((phase: SopPhase | '') => {
@@ -482,7 +492,7 @@ function AuthenticatedAppShell({ onLogout }: { onLogout: () => void }) {
         onViewChange={handleViewChange}
         activeProjectPhase={isDashboard ? phaseFilter : ''}
         onProjectPhaseSelect={handleProjectPhaseSelect}
-        activeSurveyWorkflow={isDashboard && phaseFilter === 'survey' ? getSurveyWorkflowFromSearch(location.search) : null}
+        activeSurveyWorkflow={activeSurveyWorkflow}
         onSurveyWorkflowSelect={handleSurveyWorkflowSelect}
         activeStep={activeStep}
         onStepChange={handleStepChange}
@@ -507,12 +517,12 @@ function AuthenticatedAppShell({ onLogout }: { onLogout: () => void }) {
         {isDashboard ? (
           isProjectDetailView ? (
             <ProjectDetailPage />
-          ) : phaseFilter === 'survey' ? (
+          ) : activeSurveyWorkflow ? (
             <SurveyWorkflowPage
               projects={projects}
               loading={projectsLoading}
               error={projectsError}
-              activeModule={getSurveyWorkflowFromSearch(location.search)}
+              activeModule={activeSurveyWorkflow}
               onInitializeProject={handleCreateProjectFromEnterprise}
               onSelectProject={(project) => {
                 navigate(`/projects/${project.id}`);

@@ -485,6 +485,8 @@ function createRepo(
     getProjectHvacSurveyWorkspace: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
     upsertCoolingStation: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
     deleteCoolingStation: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
+    createSurveyFile: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
+    reviewSurveyFile: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
     upsertHvacEquipmentAssets: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
     replaceMonthlyProfiles: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
     runHvacEvaluation: vi.fn(async () => PROJECT_HVAC_READY_SURVEY_WORKSPACE),
@@ -608,8 +610,7 @@ describe('project routes', () => {
     expect(gate.errors).toContain('equipment 未知设备 model is required');
     expect(gate.errors).toContain('equipment 未知设备 ratedPowerKw must be greater than 0');
     expect(gate.errors).toContain('equipment 未知设备 requires 12 monthly profiles');
-    expect(gate.errors).toContain('open missing_info gaps must be resolved or waived');
-    expect(gate.errors).toContain('survey to proposal handoff is required');
+    expect(gate.errors).toContain('HVAC energy evaluation is required');
   });
 
   it('allows HVAC survey completion when approved assets have a complete 12 month model', () => {
@@ -658,6 +659,23 @@ describe('project routes', () => {
         createdAt: '2026-04-14T09:00:00.000Z',
         updatedAt: '2026-04-14T09:00:00.000Z',
       })),
+      latestEvaluation: {
+        id: 'evaluation-1',
+        projectId: 'project-1',
+        year: 2026,
+        savingMode: 'balanced',
+        result: {
+          yearEnergyBeforeKwh: 1000,
+          yearEnergyAfterKwh: 900,
+          yearSavingEnergyKwh: 100,
+          yearSavingCostCny: 80,
+          yearSavingRate: 0.1,
+          byDeviceType: {},
+          monthTrends: [],
+        },
+        createdBy: 'pm-user-1',
+        createdAt: '2026-04-14T09:00:00.000Z',
+      },
       dataGaps: PROJECT_SURVEY_WORKSPACE.dataGaps,
       handoffs: PROJECT_SURVEY_WORKSPACE.handoffs,
     });
@@ -1129,7 +1147,7 @@ describe('project routes', () => {
     });
   });
 
-  it('blocks survey completion when validation fails', async () => {
+  it('ignores legacy survey validation when HVAC validation passes', async () => {
     const repo = createRepo();
     (repo as unknown as { getProjectSurveyWorkspace: ReturnType<typeof vi.fn> }).getProjectSurveyWorkspace
       .mockResolvedValueOnce(INVALID_PROJECT_SURVEY_WORKSPACE);
@@ -1148,17 +1166,11 @@ describe('project routes', () => {
       },
     });
 
-    expect(response.statusCode).toBe(409);
+    expect(response.statusCode).toBe(200);
     expect((repo as unknown as { completeProjectSurveyWorkspace: ReturnType<typeof vi.fn> }).completeProjectSurveyWorkspace)
-      .not.toHaveBeenCalled();
+      .toHaveBeenCalledWith('project-1', 'pm-user-1');
     expect(response.json()).toEqual({
-      error: {
-        code: 'PROJECT_SURVEY_VALIDATION_FAILED',
-        message: 'Survey workspace is not ready to complete.',
-        details: {
-          errors: INVALID_PROJECT_SURVEY_WORKSPACE.gateValidation.errors,
-        },
-      },
+      item: PROJECT_SURVEY_WORKSPACE,
     });
   });
 
@@ -1311,6 +1323,100 @@ describe('project routes', () => {
     expect(response.statusCode).toBe(200);
     expect((repo as unknown as { deleteCoolingStation: ReturnType<typeof vi.fn> }).deleteCoolingStation)
       .toHaveBeenCalledWith('project-1', 'station-1', 'pm-user-1');
+  });
+
+  it('creates HVAC survey files through the authenticated API', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/projects/project-1/hvac-survey/files',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        stationId: 'station-1',
+        fileType: 'device_ledger',
+        fileName: '设备台账.xlsx',
+        storageBucket: 'survey-files',
+        storagePath: 'project-1/device-ledger.xlsx',
+        contentBase64: Buffer.from('ledger').toString('base64'),
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        fileSize: 6,
+        extractionStatus: 'needs_review',
+        rawExtraction: { rows: [] },
+        reviewedPayload: { assets: [] },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { createSurveyFile: ReturnType<typeof vi.fn> }).createSurveyFile)
+      .toHaveBeenCalledWith(
+        'project-1',
+        expect.objectContaining({
+          fileType: 'device_ledger',
+          fileName: '设备台账.xlsx',
+          contentBase64: Buffer.from('ledger').toString('base64'),
+        }),
+        'pm-user-1',
+      );
+  });
+
+  it('reviews HVAC survey files and writes them into the workspace pipeline', async () => {
+    const repo = createRepo();
+    app = buildApp({
+      env: TEST_ENV,
+      projectRepo: repo,
+    });
+
+    const token = await createToken('pm-user-1');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/projects/project-1/hvac-survey/files/file-1/review',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        decision: 'approve',
+        reviewedPayload: {
+          assets: [
+            {
+              deviceType: 'cooling_tower',
+              equipmentName: '冷却塔 1#',
+              model: 'CT-500',
+              ratedPowerKw: 30,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((repo as unknown as { reviewSurveyFile: ReturnType<typeof vi.fn> }).reviewSurveyFile)
+      .toHaveBeenCalledWith(
+        'project-1',
+        'file-1',
+        {
+          decision: 'approve',
+          reviewedPayload: {
+            assets: [
+              {
+                deviceType: 'cooling_tower',
+                equipmentName: '冷却塔 1#',
+                model: 'CT-500',
+                ratedPowerKw: 30,
+              },
+            ],
+          },
+          errorMessage: undefined,
+        },
+        'pm-user-1',
+      );
   });
 
   it('replaces reviewed HVAC equipment assets for authenticated users', async () => {

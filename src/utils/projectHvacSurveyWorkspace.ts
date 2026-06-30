@@ -34,6 +34,22 @@ export const HVAC_SAVING_MODE_LABELS: Record<HvacSavingMode, string> = {
   extreme: '极限节能',
 };
 
+export const SURVEY_FILE_TYPE_LABELS: Record<SurveyFileType, string> = {
+  device_nameplate: '设备铭牌',
+  device_ledger: '设备台账',
+  operation_record: '运行记录',
+  site_photo: '现场照片',
+  other: '其他资料',
+};
+
+export const SURVEY_EXTRACTION_STATUS_LABELS: Record<SurveyExtractionStatus, string> = {
+  uploaded: '已上传',
+  extracting: '识别中',
+  needs_review: '待审核',
+  reviewed: '已入库',
+  failed: '已驳回',
+};
+
 export interface ProjectCoolingStation {
   id: string;
   projectId: string;

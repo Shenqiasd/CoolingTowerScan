@@ -436,6 +436,28 @@ export interface UpsertCoolingStationInput {
   notes?: string;
 }
 
+export interface CreateProjectSurveyFileInput {
+  stationId?: string | null;
+  fileType: ProjectSurveyFileType;
+  fileName: string;
+  storageBucket?: string;
+  storagePath: string;
+  contentBase64?: string;
+  mimeType?: string;
+  fileSize?: number;
+  extractionStatus?: ProjectSurveyExtractionStatus;
+  confidence?: number | null;
+  errorMessage?: string;
+  rawExtraction?: Record<string, unknown>;
+  reviewedPayload?: Record<string, unknown>;
+}
+
+export interface ReviewProjectSurveyFileInput {
+  decision: 'approve' | 'reject';
+  reviewedPayload?: Record<string, unknown>;
+  errorMessage?: string;
+}
+
 export interface RunHvacEvaluationInput {
   year: number;
   savingMode: ProjectHvacSavingMode;
@@ -567,6 +589,17 @@ export interface ProjectRepo {
     actorUserId: string,
   ): Promise<ProjectHvacSurveyWorkspace | null>;
   deleteCoolingStation(projectId: string, stationId: string, actorUserId: string): Promise<ProjectHvacSurveyWorkspace | null>;
+  createSurveyFile(
+    projectId: string,
+    input: CreateProjectSurveyFileInput,
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace | null>;
+  reviewSurveyFile(
+    projectId: string,
+    fileId: string,
+    input: ReviewProjectSurveyFileInput,
+    actorUserId: string,
+  ): Promise<ProjectHvacSurveyWorkspace | null>;
   upsertHvacEquipmentAssets(
     projectId: string,
     input: ProjectHvacEquipmentAsset[],

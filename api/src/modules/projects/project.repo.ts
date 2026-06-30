@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 
 import type {
+  CreateProjectSurveyFileInput,
   ProjectAuditLogItem,
   ProjectCoolingStation,
   ProjectDataGapItem,
@@ -31,6 +32,7 @@ import type {
   ProjectSurveyInfoCollection,
   ProjectSurveyRecord,
   ProjectSurveyWorkspace,
+  ReviewProjectSurveyFileInput,
   ProjectSolutionCalculationSummary,
   ProjectSolutionCommercialBranching,
   ProjectSolutionFreezeApproval,
@@ -491,6 +493,267 @@ function getNullableNumber(value: unknown): number | null {
   }
 
   return null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readRecordString(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return '';
+}
+
+function readRecordNumber(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = source[key];
+    const parsed = getNullableNumber(value);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function normalizePercent(value: number | null) {
+  if (value === null) {
+    return null;
+  }
+
+  return value > 0 && value <= 1 ? value * 100 : value;
+}
+
+function normalizeHvacDeviceType(value: unknown): ProjectHvacDeviceType {
+  if (typeof value !== 'string') {
+    return 'unknown';
+  }
+
+  const text = value.trim().toLowerCase();
+  if (!text) {
+    return 'unknown';
+  }
+  if (text.includes('chiller') || text.includes('冷机') || text.includes('主机')) {
+    return 'chiller';
+  }
+  if (text.includes('chilled') || text.includes('冷冻泵') || text.includes('冷冻水泵')) {
+    return 'chilled_water_pump';
+  }
+  if (text.includes('cooling_water') || text.includes('冷却泵') || text.includes('冷却水泵')) {
+    return 'cooling_water_pump';
+  }
+  if (text.includes('tower') || text.includes('冷却塔')) {
+    return 'cooling_tower';
+  }
+
+  return 'unknown';
+}
+
+function getPayloadRows(payload: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      return value.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+    }
+  }
+
+  return [];
+}
+
+function getReviewPayload(file: ProjectSurveyFile, input: ReviewProjectSurveyFileInput) {
+  return input.reviewedPayload && Object.keys(input.reviewedPayload).length > 0
+    ? input.reviewedPayload
+    : file.reviewedPayload && Object.keys(file.reviewedPayload).length > 0
+      ? file.reviewedPayload
+      : file.rawExtraction;
+}
+
+function buildEquipmentAssetsFromPayload(
+  projectId: string,
+  file: ProjectSurveyFile,
+  payload: Record<string, unknown>,
+): ProjectHvacEquipmentAsset[] {
+  const rows = getPayloadRows(payload, ['assets', 'equipmentAssets', 'devices', 'rows']);
+  const sourceRows = rows.length > 0 ? rows : [payload];
+
+  return sourceRows.map((row) => {
+    const deviceType = normalizeHvacDeviceType(
+      readRecordString(row, ['deviceType', 'device_type', '设备类型', '类型', '类别']),
+    );
+    const equipmentName = readRecordString(row, ['equipmentName', 'equipment_name', 'deviceName', '设备名称', '名称', 'name']);
+    const model = readRecordString(row, ['model', '型号', '规格型号']);
+    const ratedPowerKw = readRecordNumber(row, ['ratedPowerKw', 'rated_power_kw', '额定功率', '额定功率kW', '功率', '功率kW']);
+
+    return {
+      id: '',
+      projectId,
+      stationId: readRecordString(row, ['stationId', 'station_id', '冷冻站ID']) || file.stationId,
+      sourceFileId: file.id,
+      deviceType,
+      equipmentName,
+      brand: readRecordString(row, ['brand', '品牌']),
+      model,
+      quantity: readRecordNumber(row, ['quantity', '数量', '台数']) ?? 1,
+      ratedPowerKw,
+      ratedCoolingCapacityKw: readRecordNumber(row, ['ratedCoolingCapacityKw', 'rated_cooling_capacity_kw', '额定冷量', '冷量kW']),
+      ratedCop: readRecordNumber(row, ['ratedCop', 'rated_cop', 'COP', 'cop']),
+      frequencyHz: readRecordNumber(row, ['frequencyHz', 'frequency_hz', '频率Hz', '频率']),
+      headM: readRecordNumber(row, ['headM', 'head_m', '扬程m', '扬程']),
+      flowRateM3h: readRecordNumber(row, ['flowRateM3h', 'flow_rate_m3h', '流量m3/h', '流量']),
+      heatExchangeCapacityKw: readRecordNumber(row, ['heatExchangeCapacityKw', 'heat_exchange_capacity_kw', '换热量kW', '换热量']),
+      status: 'running' as const,
+      reviewStatus: 'approved' as const,
+      confidence: readRecordNumber(row, ['confidence', '置信度']) ?? file.confidence,
+      notes: readRecordString(row, ['notes', '备注']),
+      createdAt: '',
+      updatedAt: '',
+    };
+  }).filter((item) => item.equipmentName.trim() || item.model.trim());
+}
+
+function buildOperationRecordsFromPayload(
+  projectId: string,
+  file: ProjectSurveyFile,
+  payload: Record<string, unknown>,
+): ProjectOperationRecord[] {
+  const rows = getPayloadRows(payload, ['records', 'operationRecords', 'rows']);
+  const sourceRows = rows.length > 0 ? rows : [payload];
+
+  return sourceRows.map((row) => ({
+    id: '',
+    projectId,
+    stationId: readRecordString(row, ['stationId', 'station_id', '冷冻站ID']) || file.stationId,
+    sourceFileId: file.id,
+    recordDate: readRecordString(row, ['recordDate', 'record_date', '日期']) || null,
+    recordTime: readRecordString(row, ['recordTime', 'record_time', '时间']),
+    shift: readRecordString(row, ['shift', '班次']),
+    operatingStatus: readRecordString(row, ['operatingStatus', 'operating_status', '运行状态', '状态']),
+    operatingHours: readRecordNumber(row, ['operatingHours', 'operating_hours', '运行小时', '运行时长']),
+    unitsOnCount: readRecordNumber(row, ['unitsOnCount', 'units_on_count', '运行台数', '开机台数']),
+    operatingCurrentPct: normalizePercent(readRecordNumber(row, ['operatingCurrentPct', 'operating_current_pct', '电流百分比'])),
+    loadRatePct: normalizePercent(readRecordNumber(row, ['loadRatePct', 'load_rate_pct', '负荷率', '负载率'])),
+    measuredEnergyKwh: readRecordNumber(row, ['measuredEnergyKwh', 'measured_energy_kwh', '电量kWh', '耗电量']),
+    notes: readRecordString(row, ['notes', '备注']),
+    reviewStatus: 'approved' as const,
+    confidence: readRecordNumber(row, ['confidence', '置信度']) ?? file.confidence,
+    createdAt: '',
+    updatedAt: '',
+  })).filter((item) => (
+    item.recordDate
+    || item.operatingHours !== null
+    || item.loadRatePct !== null
+    || item.measuredEnergyKwh !== null
+  ));
+}
+
+function getDateParts(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  };
+}
+
+function getMonthDays(year: number, month: number) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function average(values: number[]) {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function materializeFallbackMonthlyProfiles(
+  workspace: ProjectHvacSurveyWorkspace,
+): ProjectEquipmentMonthlyProfile[] {
+  const existingKeys = new Set(workspace.monthlyProfiles.map((profile) => (
+    `${profile.equipmentAssetId}:${profile.year}:${profile.month}`
+  )));
+  const nextProfiles = [...workspace.monthlyProfiles];
+  const approvedRecords = workspace.operationRecords.filter((record) => record.reviewStatus === 'approved');
+
+  for (const asset of workspace.equipmentAssets.filter((item) => item.reviewStatus === 'approved')) {
+    const candidateRecords = approvedRecords.filter((record) => (
+      !record.stationId || !asset.stationId || record.stationId === asset.stationId
+    ));
+    const groups = new Map<string, ProjectOperationRecord[]>();
+    for (const record of candidateRecords) {
+      const parts = getDateParts(record.recordDate);
+      if (!parts) {
+        continue;
+      }
+      const key = `${parts.year}:${parts.month}`;
+      groups.set(key, [...(groups.get(key) ?? []), record]);
+    }
+
+    for (const [key, monthRecords] of groups.entries()) {
+      const [yearText, monthText] = key.split(':');
+      const year = Number(yearText);
+      const month = Number(monthText);
+      const profileKey = `${asset.id}:${year}:${month}`;
+      if (existingKeys.has(profileKey)) {
+        continue;
+      }
+      const runDays = new Set(
+        monthRecords
+          .map((record) => getDateParts(record.recordDate)?.day)
+          .filter((day): day is number => typeof day === 'number'),
+      ).size;
+      nextProfiles.push({
+        id: randomUUID(),
+        projectId: workspace.projectId,
+        equipmentAssetId: asset.id,
+        year,
+        month,
+        runNum: Math.max(0, Math.round(average(
+          monthRecords
+            .map((record) => record.unitsOnCount ?? asset.quantity)
+            .filter((value) => value > 0),
+        ) || asset.quantity)),
+        monthDays: getMonthDays(year, month),
+        runDays: Math.max(1, runDays),
+        runDayHours: average(
+          monthRecords
+            .map((record) => record.operatingHours ?? 0)
+            .filter((value) => value > 0),
+        ),
+        loadRatePct: average(
+          monthRecords
+            .map((record) => record.loadRatePct ?? 0)
+            .filter((value) => value > 0),
+        ),
+        operationStrategy: 'partial_year',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      existingKeys.add(profileKey);
+    }
+  }
+
+  return nextProfiles;
 }
 
 function getSolutionTechnicalAssumptions(
@@ -979,6 +1242,7 @@ function buildFallbackHvacWorkspace(
     stations,
     equipmentAssets,
     monthlyProfiles,
+    latestEvaluation,
     dataGaps,
     handoffs,
   });
@@ -1102,26 +1366,11 @@ export function buildHvacSurveyGateValidation(input: {
   stations: ProjectCoolingStation[];
   equipmentAssets: ProjectHvacEquipmentAsset[];
   monthlyProfiles: ProjectEquipmentMonthlyProfile[];
+  latestEvaluation?: ProjectHvacEvaluation | null;
   dataGaps: ProjectDataGapItem[];
   handoffs: ProjectHandoffItem[];
 }): ProjectHvacSurveyGateValidation {
-  const baseGate = buildSurveyGateValidation(
-    input.infoCollection,
-    input.surveyRecord,
-    input.equipmentAssets.map((asset) => ({
-      id: asset.id,
-      equipmentName: asset.equipmentName,
-      equipmentType: asset.deviceType,
-      locationLabel: asset.stationId ?? '',
-      quantity: asset.quantity,
-      capacityRt: asset.ratedCoolingCapacityKw ? asset.ratedCoolingCapacityKw / 3.517 : 0,
-      status: asset.status,
-      notes: asset.notes,
-    })),
-    input.dataGaps,
-    input.handoffs,
-  );
-  const errors = [...baseGate.errors];
+  const errors: string[] = [];
   const approvedAssets = input.equipmentAssets.filter((asset) => asset.reviewStatus === 'approved');
 
   if (input.stations.length === 0) {
@@ -1147,6 +1396,9 @@ export function buildHvacSurveyGateValidation(input: {
     if (profileCount !== 12) {
       errors.push(`equipment ${label} requires 12 monthly profiles`);
     }
+  }
+  if (!input.latestEvaluation) {
+    errors.push('HVAC energy evaluation is required');
   }
 
   return {
@@ -1345,6 +1597,7 @@ async function getExistingProjectByEnterprise(
     .from('projects')
     .select(PROJECT_SELECT)
     .eq('enterprise_id', enterpriseId)
+    .is('lead_id', null)
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -1453,14 +1706,13 @@ async function initializeProjectStages(
     .from('project_stage_states')
     .upsert(
       PROJECT_STAGE_CODES.map((stageCode) => {
-        const completed = stageCode === 'prospecting' || stageCode === 'qualification';
         const active = stageCode === 'survey';
         return {
           project_id: projectId,
           stage_code: stageCode,
-          status: completed ? 'completed' : active ? 'in_progress' : 'not_started',
-          entered_at: completed || active ? timestamp : null,
-          completed_at: completed ? timestamp : null,
+          status: active ? 'in_progress' : 'not_started',
+          entered_at: active ? timestamp : null,
+          completed_at: null,
           blockers: [],
           gate_snapshot: {
             initializedBy: actorUserId,
@@ -1750,6 +2002,7 @@ async function getProjectHvacSurveyWorkspace(
     stations,
     equipmentAssets,
     monthlyProfiles,
+    latestEvaluation,
     dataGaps,
     handoffs,
   });
@@ -2103,6 +2356,339 @@ async function upsertCoolingStationRecord(
   }
 }
 
+function validateSurveyFileInput(input: CreateProjectSurveyFileInput) {
+  if (!input.fileName.trim()) {
+    throw new Error('survey fileName is required');
+  }
+  if (!input.storagePath.trim()) {
+    throw new Error('survey storagePath is required');
+  }
+}
+
+async function uploadSurveyFileContent(
+  supabaseAdmin: SupabaseClient,
+  input: CreateProjectSurveyFileInput,
+) {
+  if (!input.contentBase64?.trim()) {
+    return;
+  }
+
+  const bucket = input.storageBucket?.trim() || 'survey-files';
+  const content = Buffer.from(input.contentBase64, 'base64');
+  if (content.length === 0) {
+    throw new Error('survey file content is empty');
+  }
+
+  const { error } = await supabaseAdmin.storage
+    .from(bucket)
+    .upload(input.storagePath.trim(), content, {
+      contentType: input.mimeType?.trim() || undefined,
+      upsert: false,
+    });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function insertSurveyFileRecord(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  input: CreateProjectSurveyFileInput,
+  actorUserId: string,
+) {
+  validateSurveyFileInput(input);
+  await uploadSurveyFileContent(supabaseAdmin, input);
+
+  const { error } = await supabaseAdmin
+    .from('project_survey_files')
+    .insert({
+      project_id: projectId,
+      station_id: input.stationId ?? null,
+      file_type: input.fileType,
+      file_name: input.fileName.trim(),
+      storage_bucket: input.storageBucket?.trim() || 'survey-files',
+      storage_path: input.storagePath.trim(),
+      mime_type: input.mimeType?.trim() ?? '',
+      file_size: input.fileSize ?? 0,
+      extraction_status: input.extractionStatus ?? 'needs_review',
+      confidence: input.confidence ?? null,
+      error_message: input.errorMessage?.trim() ?? '',
+      raw_extraction: input.rawExtraction ?? {},
+      reviewed_payload: input.reviewedPayload ?? {},
+      created_by: actorUserId || null,
+    });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function getSurveyFileById(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  fileId: string,
+): Promise<ProjectSurveyFile | null> {
+  const { data, error } = await supabaseAdmin
+    .from('project_survey_files')
+    .select('id, project_id, station_id, file_type, file_name, storage_bucket, storage_path, mime_type, file_size, extraction_status, confidence, error_message, raw_extraction, reviewed_payload, created_by, reviewed_by, reviewed_at, created_at, updated_at')
+    .eq('project_id', projectId)
+    .eq('id', fileId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ? mapSurveyFile(data as SurveyFileRow) : null;
+}
+
+async function replaceHvacEquipmentAssetsForFile(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  sourceFileId: string,
+  items: ProjectHvacEquipmentAsset[],
+) {
+  validateHvacEquipmentAssets(items);
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('project_hvac_equipment_assets')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('source_file_id', sourceFileId);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  if (items.length === 0) {
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('project_hvac_equipment_assets')
+    .insert(items.map((item) => ({
+      project_id: projectId,
+      station_id: item.stationId,
+      source_file_id: sourceFileId,
+      device_type: item.deviceType,
+      equipment_name: item.equipmentName,
+      brand: item.brand,
+      model: item.model,
+      quantity: item.quantity,
+      rated_power_kw: item.ratedPowerKw,
+      rated_cooling_capacity_kw: item.ratedCoolingCapacityKw,
+      rated_cop: item.ratedCop,
+      frequency_hz: item.frequencyHz,
+      head_m: item.headM,
+      flow_rate_m3h: item.flowRateM3h,
+      heat_exchange_capacity_kw: item.heatExchangeCapacityKw,
+      status: item.status,
+      review_status: item.reviewStatus,
+      confidence: item.confidence,
+      notes: item.notes,
+    })));
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function replaceOperationRecordsForFile(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  sourceFileId: string,
+  items: ProjectOperationRecord[],
+) {
+  const { error: deleteError } = await supabaseAdmin
+    .from('project_operation_records')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('source_file_id', sourceFileId);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  if (items.length === 0) {
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('project_operation_records')
+    .insert(items.map((item) => ({
+      project_id: projectId,
+      station_id: item.stationId,
+      source_file_id: sourceFileId,
+      record_date: item.recordDate,
+      record_time: item.recordTime,
+      shift: item.shift,
+      operating_status: item.operatingStatus,
+      operating_hours: item.operatingHours,
+      units_on_count: item.unitsOnCount,
+      operating_current_pct: item.operatingCurrentPct,
+      load_rate_pct: item.loadRatePct,
+      measured_energy_kwh: item.measuredEnergyKwh,
+      notes: item.notes,
+      review_status: item.reviewStatus,
+      confidence: item.confidence,
+    })));
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function materializeMonthlyProfilesFromOperationRecords(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+) {
+  const [assets, records, existingProfiles] = await Promise.all([
+    getHvacEquipmentAssetRows(supabaseAdmin, projectId),
+    getOperationRecordRows(supabaseAdmin, projectId),
+    getEquipmentMonthlyProfileRows(supabaseAdmin, projectId),
+  ]);
+  const approvedAssets = assets.filter((asset) => asset.reviewStatus === 'approved');
+  const approvedRecords = records.filter((record) => record.reviewStatus === 'approved');
+  const existingKeys = new Set(existingProfiles.map((profile) => (
+    `${profile.equipmentAssetId}:${profile.year}:${profile.month}`
+  )));
+  const nextProfiles: Array<{
+    project_id: string;
+    equipment_asset_id: string;
+    year: number;
+    month: number;
+    run_num: number;
+    month_days: number;
+    run_days: number;
+    run_day_hours: number;
+    load_rate_pct: number;
+    operation_strategy: ProjectHvacOperationStrategy;
+  }> = [];
+
+  for (const asset of approvedAssets) {
+    const candidateRecords = approvedRecords.filter((record) => (
+      !record.stationId || !asset.stationId || record.stationId === asset.stationId
+    ));
+    const groups = new Map<string, ProjectOperationRecord[]>();
+    for (const record of candidateRecords) {
+      const parts = getDateParts(record.recordDate);
+      if (!parts) {
+        continue;
+      }
+      const key = `${parts.year}:${parts.month}`;
+      groups.set(key, [...(groups.get(key) ?? []), record]);
+    }
+
+    for (const [key, monthRecords] of groups.entries()) {
+      const [yearText, monthText] = key.split(':');
+      const year = Number(yearText);
+      const month = Number(monthText);
+      const profileKey = `${asset.id}:${year}:${month}`;
+      if (existingKeys.has(profileKey)) {
+        continue;
+      }
+      const runDays = new Set(
+        monthRecords
+          .map((record) => getDateParts(record.recordDate)?.day)
+          .filter((day): day is number => typeof day === 'number'),
+      ).size;
+      nextProfiles.push({
+        project_id: projectId,
+        equipment_asset_id: asset.id,
+        year,
+        month,
+        run_num: Math.max(0, Math.round(average(
+          monthRecords
+            .map((record) => record.unitsOnCount ?? asset.quantity)
+            .filter((value) => value > 0),
+        ) || asset.quantity)),
+        month_days: getMonthDays(year, month),
+        run_days: Math.max(1, runDays),
+        run_day_hours: average(
+          monthRecords
+            .map((record) => record.operatingHours ?? 0)
+            .filter((value) => value > 0),
+        ),
+        load_rate_pct: average(
+          monthRecords
+            .map((record) => record.loadRatePct ?? 0)
+            .filter((value) => value > 0),
+        ),
+        operation_strategy: 'partial_year',
+      });
+      existingKeys.add(profileKey);
+    }
+  }
+
+  if (nextProfiles.length === 0) {
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('project_equipment_monthly_profiles')
+    .insert(nextProfiles);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function updateSurveyFileReviewRecord(
+  supabaseAdmin: SupabaseClient,
+  projectId: string,
+  fileId: string,
+  input: ReviewProjectSurveyFileInput,
+  actorUserId: string,
+) {
+  const file = await getSurveyFileById(supabaseAdmin, projectId, fileId);
+  if (!file) {
+    return null;
+  }
+  if (file.extractionStatus === 'reviewed' && input.decision === 'reject') {
+    throw new Error('reviewed survey file cannot be rejected; update the payload and approve it again');
+  }
+
+  const reviewedPayload = getReviewPayload(file, input);
+  if (input.decision === 'approve') {
+    if (file.fileType === 'device_nameplate' || file.fileType === 'device_ledger') {
+      const assets = buildEquipmentAssetsFromPayload(projectId, file, reviewedPayload);
+      if (assets.length === 0) {
+        throw new Error('approved device file requires at least one equipment row');
+      }
+      await replaceHvacEquipmentAssetsForFile(supabaseAdmin, projectId, fileId, assets);
+      await materializeMonthlyProfilesFromOperationRecords(supabaseAdmin, projectId);
+    }
+
+    if (file.fileType === 'operation_record') {
+      const records = buildOperationRecordsFromPayload(projectId, file, reviewedPayload);
+      if (records.length === 0) {
+        throw new Error('approved operation file requires at least one operation row');
+      }
+      await replaceOperationRecordsForFile(supabaseAdmin, projectId, fileId, records);
+      await materializeMonthlyProfilesFromOperationRecords(supabaseAdmin, projectId);
+    }
+  }
+
+  const { error } = await supabaseAdmin
+    .from('project_survey_files')
+    .update({
+      extraction_status: input.decision === 'approve' ? 'reviewed' : 'failed',
+      reviewed_payload: reviewedPayload,
+      error_message: input.decision === 'reject' ? input.errorMessage?.trim() ?? '审核驳回' : '',
+      reviewed_by: actorUserId || null,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('project_id', projectId)
+    .eq('id', fileId);
+
+  if (error) {
+    throw error;
+  }
+
+  return file;
+}
+
 async function replaceHvacEquipmentAssets(
   supabaseAdmin: SupabaseClient,
   projectId: string,
@@ -2318,47 +2904,12 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
           enterprise_id: lead.enterprise_id,
           site_id: lead.site_id,
           name,
-          current_phase: 'survey',
+          current_phase: 'prospecting',
           workflow_status: 'active',
           status: 'active',
           priority: lead.priority ?? 'medium',
           assigned_to: actorUserId,
-          phase_data: {
-            prospecting: {
-              source: 'lead-conversion',
-            },
-            qualification: {
-              status: 'qualified',
-              source: 'lead-conversion',
-            },
-            survey: {
-              infoCollection: {
-                siteContactName: '',
-                siteContactPhone: '',
-                siteAccessWindow: '',
-                operatingSchedule: '',
-                coolingSystemType: '',
-                powerAccessStatus: '',
-                waterTreatmentStatus: '',
-                notes: '',
-              },
-              surveyRecord: {
-                surveyDate: '',
-                surveyOwnerUserId: actorUserId,
-                participantNames: [],
-                onSiteFindings: '',
-                loadProfileSummary: '',
-                retrofitConstraints: '',
-                nextActions: '补充冷冻站、设备台账和运行记录后执行能效评估。',
-              },
-              riskSummary: '',
-            },
-            proposal: {},
-            bidding: {},
-            execution: {},
-            commissioning: {},
-            operations: {},
-          },
+          phase_data: {},
         })
         .select('id')
         .maybeSingle();
@@ -2371,7 +2922,28 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
         return null;
       }
 
-      await initializeProjectStages(supabaseAdmin, projectData.id, actorUserId, 'lead-conversion');
+      const stageTimestamp = new Date().toISOString();
+      const { error: stageError } = await supabaseAdmin
+        .from('project_stage_states')
+        .upsert(PROJECT_STAGE_CODES.map((stageCode, index) => ({
+          project_id: projectData.id,
+          stage_code: stageCode,
+          status: index === 0 ? 'in_progress' : 'not_started',
+          entered_at: index === 0 ? stageTimestamp : null,
+          due_at: null,
+          owner_user_id: null,
+          approver_user_id: null,
+          blockers: [],
+          gate_snapshot: { initializedBy: actorUserId },
+          completed_at: null,
+        })), {
+          onConflict: 'project_id,stage_code',
+          ignoreDuplicates: false,
+        });
+
+      if (stageError) {
+        throw stageError;
+      }
 
       const { error: leadUpdateError } = await supabaseAdmin
         .from('leads')
@@ -2741,6 +3313,140 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
       return getProjectHvacSurveyWorkspace(supabaseAdmin, projectId);
     },
 
+    async createSurveyFile(projectId, input, actorUserId) {
+      const existing = await getProjectRow(supabaseAdmin, projectId);
+      if (!existing) {
+        return null;
+      }
+
+      try {
+        await insertSurveyFileRecord(supabaseAdmin, projectId, input, actorUserId);
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+        validateSurveyFileInput(input);
+        const now = new Date().toISOString();
+        const workspace = buildFallbackHvacWorkspace(existing);
+        await updateFallbackHvacWorkspace(supabaseAdmin, existing, {
+          ...workspace,
+          files: [
+            {
+              id: randomUUID(),
+              projectId,
+              stationId: input.stationId ?? null,
+              fileType: input.fileType,
+              fileName: input.fileName.trim(),
+              storageBucket: input.storageBucket?.trim() || 'survey-files',
+              storagePath: input.storagePath.trim(),
+              mimeType: input.mimeType?.trim() ?? '',
+              fileSize: input.fileSize ?? 0,
+              extractionStatus: input.extractionStatus ?? 'needs_review',
+              confidence: input.confidence ?? null,
+              errorMessage: input.errorMessage?.trim() ?? '',
+              rawExtraction: input.rawExtraction ?? {},
+              reviewedPayload: input.reviewedPayload ?? {},
+              createdBy: actorUserId || null,
+              reviewedBy: null,
+              reviewedAt: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+            ...workspace.files,
+          ],
+        });
+      }
+
+      await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.file.created', actorUserId, {
+        fileType: input.fileType,
+        fileName: input.fileName,
+      });
+
+      return getProjectHvacSurveyWorkspace(supabaseAdmin, projectId);
+    },
+
+    async reviewSurveyFile(projectId, fileId, input, actorUserId) {
+      const existing = await getProjectRow(supabaseAdmin, projectId);
+      if (!existing) {
+        return null;
+      }
+
+      try {
+        const reviewed = await updateSurveyFileReviewRecord(supabaseAdmin, projectId, fileId, input, actorUserId);
+        if (!reviewed) {
+          return null;
+        }
+      } catch (error) {
+        if (!isMissingRelationError(error)) {
+          throw error;
+        }
+        const now = new Date().toISOString();
+        const workspace = buildFallbackHvacWorkspace(existing);
+        const file = workspace.files.find((item) => item.id === fileId);
+        if (!file) {
+          return null;
+        }
+        if (file.extractionStatus === 'reviewed' && input.decision === 'reject') {
+          throw new Error('reviewed survey file cannot be rejected; update the payload and approve it again');
+        }
+        const reviewedPayload = getReviewPayload(file, input);
+        let nextEquipmentAssets = workspace.equipmentAssets;
+        let nextOperationRecords = workspace.operationRecords;
+        if (input.decision === 'approve' && (file.fileType === 'device_nameplate' || file.fileType === 'device_ledger')) {
+          const assets = buildEquipmentAssetsFromPayload(projectId, file, reviewedPayload);
+          if (assets.length === 0) {
+            throw new Error('approved device file requires at least one equipment row');
+          }
+          validateHvacEquipmentAssets(assets);
+          nextEquipmentAssets = [
+            ...workspace.equipmentAssets.filter((item) => item.sourceFileId !== fileId),
+            ...assets.map((item) => ({ ...item, id: randomUUID(), createdAt: now, updatedAt: now })),
+          ];
+        }
+        if (input.decision === 'approve' && file.fileType === 'operation_record') {
+          const records = buildOperationRecordsFromPayload(projectId, file, reviewedPayload);
+          if (records.length === 0) {
+            throw new Error('approved operation file requires at least one operation row');
+          }
+          nextOperationRecords = [
+            ...workspace.operationRecords.filter((item) => item.sourceFileId !== fileId),
+            ...records.map((item) => ({ ...item, id: randomUUID(), createdAt: now, updatedAt: now })),
+          ];
+        }
+        const nextWorkspace = {
+          ...workspace,
+          files: workspace.files.map((item) => (
+            item.id === fileId
+              ? {
+                  ...item,
+                  extractionStatus: input.decision === 'approve' ? 'reviewed' as const : 'failed' as const,
+                  reviewedPayload,
+                  errorMessage: input.decision === 'reject' ? input.errorMessage?.trim() ?? '审核驳回' : '',
+                  reviewedBy: actorUserId || null,
+                  reviewedAt: now,
+                  updatedAt: now,
+                }
+              : item
+          )),
+          equipmentAssets: nextEquipmentAssets,
+          operationRecords: nextOperationRecords,
+        };
+        await updateFallbackHvacWorkspace(supabaseAdmin, existing, {
+          ...nextWorkspace,
+          monthlyProfiles: input.decision === 'approve'
+            ? materializeFallbackMonthlyProfiles(nextWorkspace)
+            : nextWorkspace.monthlyProfiles,
+        });
+      }
+
+      await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.file.reviewed', actorUserId, {
+        fileId,
+        decision: input.decision,
+      });
+
+      return getProjectHvacSurveyWorkspace(supabaseAdmin, projectId);
+    },
+
     async upsertHvacEquipmentAssets(projectId, input, actorUserId) {
       const existing = await getProjectRow(supabaseAdmin, projectId);
       if (!existing) {
@@ -2749,15 +3455,20 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
 
       try {
         await replaceHvacEquipmentAssets(supabaseAdmin, projectId, input);
+        await materializeMonthlyProfilesFromOperationRecords(supabaseAdmin, projectId);
       } catch (error) {
         if (!isMissingRelationError(error)) {
           throw error;
         }
         validateHvacEquipmentAssets(input);
         const workspace = buildFallbackHvacWorkspace(existing);
-        await updateFallbackHvacWorkspace(supabaseAdmin, existing, {
+        const nextWorkspace = {
           ...workspace,
           equipmentAssets: input,
+        };
+        await updateFallbackHvacWorkspace(supabaseAdmin, existing, {
+          ...nextWorkspace,
+          monthlyProfiles: materializeFallbackMonthlyProfiles(nextWorkspace),
         });
       }
       await insertProjectAuditLog(supabaseAdmin, projectId, 'project.hvacSurvey.equipment.updated', actorUserId, {
@@ -2918,11 +3629,9 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
 
       const timestamp = new Date().toISOString();
       const currentSurveyPhase = getPhaseDataValue(existing.phase_data, 'survey');
-      const currentProposalPhase = getPhaseDataValue(existing.phase_data, 'proposal');
       const { error: projectError } = await supabaseAdmin
         .from('projects')
         .update({
-          current_phase: 'proposal',
           phase_data: {
             ...(existing.phase_data ?? {}),
             survey: {
@@ -2931,11 +3640,6 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
               surveyRecord: getSurveyRecord(existing.phase_data),
               completionStatus: 'completed',
               completedAt: timestamp,
-            },
-            proposal: {
-              ...currentProposalPhase,
-              enteredFromSurveyAt: timestamp,
-              previousSurveyCompletedAt: timestamp,
             },
           },
         })
@@ -2946,48 +3650,25 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
       }
 
       const existingStage = (existing.project_stage_states ?? []).find((item) => item.stage_code === 'survey');
-      const existingProposalStage = (existing.project_stage_states ?? []).find((item) => item.stage_code === 'proposal');
-      const proposalStatus = existingProposalStage?.status === 'completed' || existingProposalStage?.status === 'pending_approval'
-        ? existingProposalStage.status
-        : 'in_progress';
       const { error: stageError } = await supabaseAdmin
         .from('project_stage_states')
-        .upsert([
-          {
-            project_id: projectId,
-            stage_code: 'survey',
-            status: 'completed',
-            entered_at: existingStage?.entered_at ?? timestamp,
-            due_at: existingStage?.due_at ?? null,
-            owner_user_id: existingStage?.owner_user_id ?? null,
-            approver_user_id: existingStage?.approver_user_id ?? null,
-            blockers: existingStage?.blockers ?? [],
-            gate_snapshot: {
-              ...(existingStage?.gate_snapshot ?? {}),
-              completionStatus: 'completed',
-              completedAt: timestamp,
-              nextGateLabel: '已交接至方案报价',
-            },
-            completed_at: timestamp,
+        .upsert({
+          project_id: projectId,
+          stage_code: 'survey',
+          status: 'completed',
+          entered_at: existingStage?.entered_at ?? timestamp,
+          due_at: existingStage?.due_at ?? null,
+          owner_user_id: existingStage?.owner_user_id ?? null,
+          approver_user_id: existingStage?.approver_user_id ?? null,
+          blockers: existingStage?.blockers ?? [],
+          gate_snapshot: {
+            ...(existingStage?.gate_snapshot ?? {}),
+            completionStatus: 'completed',
+            completedAt: timestamp,
+            nextGateLabel: '踏勘调研已完成',
           },
-          {
-            project_id: projectId,
-            stage_code: 'proposal',
-            status: proposalStatus,
-            entered_at: existingProposalStage?.entered_at ?? timestamp,
-            due_at: existingProposalStage?.due_at ?? null,
-            owner_user_id: existingProposalStage?.owner_user_id ?? null,
-            approver_user_id: existingProposalStage?.approver_user_id ?? null,
-            blockers: existingProposalStage?.blockers ?? [],
-            gate_snapshot: {
-              ...(existingProposalStage?.gate_snapshot ?? {}),
-              enteredFromSurveyAt: timestamp,
-              previousSurveyCompletedAt: timestamp,
-              nextGateLabel: existingProposalStage?.gate_snapshot?.nextGateLabel ?? '生成方案并提交商业冻结',
-            },
-            completed_at: existingProposalStage?.completed_at ?? null,
-          },
-        ], {
+          completed_at: timestamp,
+        }, {
           onConflict: 'project_id,stage_code',
           ignoreDuplicates: false,
         });
@@ -2998,7 +3679,7 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
 
       await insertProjectAuditLog(supabaseAdmin, projectId, 'project.survey.completed', actorUserId, {
         completedAt: timestamp,
-        nextStage: 'proposal',
+        nextStage: null,
       });
 
       return getProjectSurveyWorkspace(supabaseAdmin, projectId);

@@ -12,6 +12,8 @@ import {
   PROJECT_HVAC_REVIEW_STATUSES,
   PROJECT_HVAC_SAVING_MODES,
   PROJECT_PRIORITIES,
+  PROJECT_SURVEY_EXTRACTION_STATUSES,
+  PROJECT_SURVEY_FILE_TYPES,
   PROJECT_SOLUTION_FREEZE_DECISIONS,
   PROJECT_STAGE_CODES,
   PROJECT_STAGE_STATUSES,
@@ -26,6 +28,8 @@ import {
   type ProjectHvacOperationStrategy,
   type ProjectHvacReviewStatus,
   type ProjectHvacSavingMode,
+  type ProjectSurveyExtractionStatus,
+  type ProjectSurveyFileType,
   type ProjectRepo,
   type RunHvacEvaluationInput,
   type ProjectStageCode,
@@ -124,6 +128,18 @@ function parseNullableNumber(value: unknown, code: string, message: string): num
 
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
+  }
+
+  throw new AppError(400, code, message);
+}
+
+function parseOptionalRecord(value: unknown, code: string, message: string): Record<string, unknown> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
   }
 
   throw new AppError(400, code, message);
@@ -585,6 +601,32 @@ function parseHvacSavingMode(value: unknown): ProjectHvacSavingMode {
   throw new AppError(400, 'PROJECT_HVAC_EVALUATION_INVALID', 'HVAC savingMode is invalid.');
 }
 
+function parseSurveyFileType(value: unknown): ProjectSurveyFileType {
+  if (
+    typeof value === 'string'
+    && PROJECT_SURVEY_FILE_TYPES.includes(value as ProjectSurveyFileType)
+  ) {
+    return value as ProjectSurveyFileType;
+  }
+
+  throw new AppError(400, 'PROJECT_SURVEY_FILE_INVALID', 'Survey fileType is invalid.');
+}
+
+function parseSurveyExtractionStatus(value: unknown): ProjectSurveyExtractionStatus | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (
+    typeof value === 'string'
+    && PROJECT_SURVEY_EXTRACTION_STATUSES.includes(value as ProjectSurveyExtractionStatus)
+  ) {
+    return value as ProjectSurveyExtractionStatus;
+  }
+
+  throw new AppError(400, 'PROJECT_SURVEY_FILE_INVALID', 'Survey extractionStatus is invalid.');
+}
+
 function parseCoolingStationInput(value: Record<string, unknown>, stationId?: string): UpsertCoolingStationInput {
   return {
     id: stationId,
@@ -602,6 +644,90 @@ function parseCoolingStationInput(value: Record<string, unknown>, stationId?: st
       value.notes,
       'PROJECT_HVAC_STATION_NOTES_INVALID',
       'Cooling station notes must be a string.',
+    ),
+  };
+}
+
+function parseSurveyFileInput(value: Record<string, unknown>) {
+  return {
+    stationId: parseNullableString(
+      value.stationId,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey stationId must be a string or null.',
+    ),
+    fileType: parseSurveyFileType(value.fileType),
+    fileName: parseRequiredString(
+      value.fileName,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey fileName is required.',
+    ),
+    storageBucket: parseOptionalString(
+      value.storageBucket,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey storageBucket must be a string.',
+    ),
+    storagePath: parseRequiredString(
+      value.storagePath,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey storagePath is required.',
+    ),
+    contentBase64: parseOptionalString(
+      value.contentBase64,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey contentBase64 must be a string.',
+    ),
+    mimeType: parseOptionalString(
+      value.mimeType,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey mimeType must be a string.',
+    ),
+    fileSize: parseOptionalNumber(
+      value.fileSize,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey fileSize must be a number.',
+    ),
+    extractionStatus: parseSurveyExtractionStatus(value.extractionStatus),
+    confidence: parseNullableNumber(
+      value.confidence,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey confidence must be a number or null.',
+    ),
+    errorMessage: parseOptionalString(
+      value.errorMessage,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey errorMessage must be a string.',
+    ),
+    rawExtraction: parseOptionalRecord(
+      value.rawExtraction,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey rawExtraction must be an object.',
+    ),
+    reviewedPayload: parseOptionalRecord(
+      value.reviewedPayload,
+      'PROJECT_SURVEY_FILE_INVALID',
+      'Survey reviewedPayload must be an object.',
+    ),
+  };
+}
+
+function parseSurveyFileReviewInput(value: Record<string, unknown>) {
+  const decision = value.decision;
+  if (decision !== 'approve' && decision !== 'reject') {
+    throw new AppError(400, 'PROJECT_SURVEY_FILE_REVIEW_INVALID', 'Survey review decision is invalid.');
+  }
+  const parsedDecision: 'approve' | 'reject' = decision;
+
+  return {
+    decision: parsedDecision,
+    reviewedPayload: parseOptionalRecord(
+      value.reviewedPayload,
+      'PROJECT_SURVEY_FILE_REVIEW_INVALID',
+      'Survey reviewedPayload must be an object.',
+    ),
+    errorMessage: parseOptionalString(
+      value.errorMessage,
+      'PROJECT_SURVEY_FILE_REVIEW_INVALID',
+      'Survey errorMessage must be a string.',
     ),
   };
 }
@@ -693,6 +819,11 @@ function parseHvacMonthlyProfiles(value: unknown): ProjectEquipmentMonthlyProfil
       throw new AppError(400, 'PROJECT_HVAC_MONTHLY_PROFILE_INVALID', `HVAC monthly profile ${index} must be an object.`);
     }
     const item = entry as Record<string, unknown>;
+    const loadRatePct = parseRequiredNumber(
+      item.loadRatePct,
+      'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
+      `HVAC monthly profile ${index} loadRatePct must be a number.`,
+    );
 
     return {
       id: typeof item.id === 'string' ? item.id : '',
@@ -732,11 +863,7 @@ function parseHvacMonthlyProfiles(value: unknown): ProjectEquipmentMonthlyProfil
         'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
         `HVAC monthly profile ${index} runDayHours must be a number.`,
       ),
-      loadRatePct: parseRequiredNumber(
-        item.loadRatePct,
-        'PROJECT_HVAC_MONTHLY_PROFILE_INVALID',
-        `HVAC monthly profile ${index} loadRatePct must be a number.`,
-      ),
+      loadRatePct: loadRatePct > 0 && loadRatePct <= 1 ? loadRatePct * 100 : loadRatePct,
       operationStrategy: item.operationStrategy === undefined
         ? 'partial_year'
         : parseHvacOperationStrategy(item.operationStrategy, index),
@@ -958,6 +1085,29 @@ export function registerProjectRoutes(app: FastifyInstance) {
       const item = await service.deleteCoolingStation(
         params.projectId ?? '',
         params.stationId ?? '',
+        request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.post('/v1/projects/:projectId/hvac-survey/files', async (request) => {
+      const params = request.params as { projectId?: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const item = await service.createSurveyFile(
+        params.projectId ?? '',
+        parseSurveyFileInput(body),
+        request.auth.userId ?? '',
+      );
+      return { item };
+    });
+
+    instance.post('/v1/projects/:projectId/hvac-survey/files/:fileId/review', async (request) => {
+      const params = request.params as { projectId?: string; fileId?: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const item = await service.reviewSurveyFile(
+        params.projectId ?? '',
+        params.fileId ?? '',
+        parseSurveyFileReviewInput(body),
         request.auth.userId ?? '',
       );
       return { item };

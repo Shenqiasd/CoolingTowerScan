@@ -51,6 +51,14 @@ interface ProjectSurveyBundle {
   error: string | null;
 }
 
+type AliProjectStage = 1 | 2 | 3;
+
+const ALI_STAGE_LABELS: Record<AliProjectStage, string> = {
+  1: '数据收资',
+  2: '能效评估',
+  3: '方案生成',
+};
+
 function formatNumber(value: number, digits = 0) {
   return value.toLocaleString('zh-CN', {
     minimumFractionDigits: digits,
@@ -82,19 +90,64 @@ function getEvaluation(bundle: ProjectSurveyBundle) {
   return bundle.hvac?.latestEvaluation?.result ?? null;
 }
 
-function getCollectionProgress(bundle: ProjectSurveyBundle) {
+function getApprovedAssets(bundle: ProjectSurveyBundle) {
+  return bundle.hvac?.equipmentAssets.filter((asset) => asset.reviewStatus === 'approved') ?? [];
+}
+
+function getPendingReviewCount(bundle: ProjectSurveyBundle) {
+  const files = bundle.hvac?.files.filter((file) => file.extractionStatus !== 'reviewed').length ?? 0;
+  const assets = bundle.hvac?.equipmentAssets.filter((asset) => asset.reviewStatus === 'pending').length ?? 0;
+  const records = bundle.hvac?.operationRecords.filter((record) => record.reviewStatus === 'pending').length ?? 0;
+  return files + assets + records;
+}
+
+function hasCompleteStationAssets(bundle: ProjectSurveyBundle) {
+  const stations = bundle.hvac?.stations ?? [];
+  const approvedAssets = getApprovedAssets(bundle);
+  if (stations.length === 0 || approvedAssets.length === 0) {
+    return false;
+  }
+
+  return stations.every((station) => (
+    approvedAssets.some((asset) => asset.stationId === station.id)
+  ));
+}
+
+function getAliProjectStage(bundle: ProjectSurveyBundle): AliProjectStage {
+  if (getEvaluation(bundle) || bundle.snapshots.length > 0) {
+    return 3;
+  }
+
+  if (hasCompleteStationAssets(bundle)) {
+    return 2;
+  }
+
+  return 1;
+}
+
+function getHasScheme(bundle: ProjectSurveyBundle) {
+  return bundle.snapshots.length > 0 || (bundle.solution?.lastSnapshotVersion ?? 0) > 0;
+}
+
+function getProjectProgress(bundle: ProjectSurveyBundle) {
   const hvac = bundle.hvac;
   if (!hvac) {
     return 0;
   }
 
+  const stage = getAliProjectStage(bundle);
+  const approvedAssets = getApprovedAssets(bundle);
+  const reviewedFiles = hvac.files.filter((file) => file.extractionStatus === 'reviewed').length;
+  const reviewedRecords = hvac.operationRecords.filter((record) => record.reviewStatus === 'approved').length;
+  const monthlyAssets = new Set(hvac.monthlyProfiles.map((profile) => profile.equipmentAssetId));
   const checks = [
     hvac.stations.length > 0,
-    hvac.equipmentAssets.length > 0,
-    hvac.monthlyProfiles.length > 0,
-    Boolean(hvac.latestEvaluation),
+    reviewedFiles > 0 || approvedAssets.length > 0,
+    approvedAssets.length > 0,
+    reviewedRecords > 0 || monthlyAssets.size > 0,
   ];
-  return checks.filter(Boolean).length / checks.length;
+  const baseProgress = checks.filter(Boolean).length / 5;
+  return Math.min(1, baseProgress + (stage > 1 ? 0.2 : 0) + (stage === 3 ? 0.2 : 0));
 }
 
 function getProjectAnnualEnergy(bundle: ProjectSurveyBundle) {
@@ -165,19 +218,32 @@ function ModuleActionButton({
   icon,
   label,
   onClick,
+  disabled = false,
+  title,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
+      title={title}
       onClick={(event) => {
         event.stopPropagation();
+        if (disabled) {
+          return;
+        }
         onClick();
       }}
-      className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/60 px-2.5 py-1.5 text-[11px] text-slate-300 transition-colors hover:border-emerald-500/50 hover:text-white"
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] transition-colors ${
+        disabled
+          ? 'cursor-not-allowed border-slate-800 bg-slate-950/40 text-slate-600'
+          : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:border-emerald-500/50 hover:text-white'
+      }`}
     >
       {icon}
       {label}
@@ -186,33 +252,40 @@ function ModuleActionButton({
 }
 
 function ProjectModuleActions({
-  project,
+  bundle,
   onOpenProjectModule,
 }: {
-  project: Project;
+  bundle: ProjectSurveyBundle;
   onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
 }) {
+  const stage = getAliProjectStage(bundle);
+  const hasScheme = getHasScheme(bundle);
+
   return (
     <div className="mt-4 flex flex-wrap gap-2">
       <ModuleActionButton
         icon={<FileSpreadsheet className="h-3.5 w-3.5" />}
         label="数据收资"
-        onClick={() => onOpenProjectModule(project, { surveyTab: 'files' })}
+        onClick={() => onOpenProjectModule(bundle.project, { surveyTab: 'files' })}
       />
       <ModuleActionButton
         icon={<Database className="h-3.5 w-3.5" />}
         label="数据审核"
-        onClick={() => onOpenProjectModule(project, { surveyTab: 'review' })}
+        onClick={() => onOpenProjectModule(bundle.project, { surveyTab: 'review' })}
       />
       <ModuleActionButton
         icon={<BarChart3 className="h-3.5 w-3.5" />}
         label="能效评估"
-        onClick={() => onOpenProjectModule(project, { surveyTab: 'evaluation' })}
+        disabled={stage < 2}
+        title={stage < 2 ? '完成冷冻站和设备收资后进入能效评估' : undefined}
+        onClick={() => onOpenProjectModule(bundle.project, { surveyTab: 'evaluation' })}
       />
       <ModuleActionButton
         icon={<FileText className="h-3.5 w-3.5" />}
-        label="方案生成"
-        onClick={() => onOpenProjectModule(project, { section: 'solution' })}
+        label={hasScheme ? '查看报告' : '方案生成'}
+        disabled={stage !== 3}
+        title={stage !== 3 ? '完成能效评估后进入方案生成' : undefined}
+        onClick={() => onOpenProjectModule(bundle.project, { section: 'solution' })}
       />
     </div>
   );
@@ -251,8 +324,10 @@ function ProjectFlowCard({
   onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
 }) {
   const hvac = bundle.hvac;
-  const progress = getCollectionProgress(bundle);
+  const progress = getProjectProgress(bundle);
   const annualEnergy = getProjectAnnualEnergy(bundle);
+  const stage = getAliProjectStage(bundle);
+  const pendingFileNum = getPendingReviewCount(bundle);
 
   return (
     <div className="w-full rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-4 text-left transition-colors hover:border-slate-700 hover:bg-slate-900">
@@ -266,23 +341,34 @@ function ProjectFlowCard({
             {bundle.project.name}
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
-          <div className="mt-1 text-[11px] text-slate-500">{bundle.project.project_code || bundle.project.id}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <span>{bundle.project.project_code || bundle.project.id}</span>
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
+              {ALI_STAGE_LABELS[stage]}
+            </span>
+            {pendingFileNum > 0 ? (
+              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-amber-300">
+                待审核 {pendingFileNum}
+              </span>
+            ) : null}
+          </div>
         </div>
         <div className="text-right text-[11px] text-slate-500">
-          <div>收资进度 {formatPercent(progress)}</div>
+          <div>项目进度 {formatPercent(progress)}</div>
           <div className="mt-1">年用电 {annualEnergy > 0 ? formatKwh(annualEnergy) : '--'}</div>
         </div>
       </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <div className="mt-4 grid gap-3 md:grid-cols-5">
         <MiniStat label="冷冻站" value={String(hvac?.stations.length ?? 0)} />
-        <MiniStat label="设备" value={String(hvac?.equipmentAssets.length ?? 0)} />
+        <MiniStat label="设备" value={String(getApprovedAssets(bundle).length)} />
         <MiniStat label="运行记录" value={String(hvac?.operationRecords.length ?? 0)} />
-        <MiniStat label="月度曲线" value={String(hvac?.monthlyProfiles.length ?? 0)} />
+        <MiniStat label="年电量" value={annualEnergy > 0 ? formatKwh(annualEnergy) : '--'} />
+        <MiniStat label="方案" value={getHasScheme(bundle) ? '已生成' : stage === 3 ? '可生成' : '未开放'} />
       </div>
       <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-800">
         <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round(progress * 100)}%` }} />
       </div>
-      <ProjectModuleActions project={bundle.project} onOpenProjectModule={onOpenProjectModule} />
+      <ProjectModuleActions bundle={bundle} onOpenProjectModule={onOpenProjectModule} />
     </div>
   );
 }
@@ -307,11 +393,10 @@ function OverviewModule({
 }) {
   const equipmentCount = bundles.reduce((sum, bundle) => sum + (bundle.hvac?.equipmentAssets.length ?? 0), 0);
   const pendingAudit = bundles.reduce((sum, bundle) => (
-    sum + (bundle.hvac?.files.filter((file) => file.extractionStatus !== 'reviewed').length ?? 0)
-    + (bundle.hvac?.equipmentAssets.filter((asset) => asset.reviewStatus === 'pending').length ?? 0)
+    sum + getPendingReviewCount(bundle)
   ), 0);
   const avgProgress = bundles.length
-    ? bundles.reduce((sum, bundle) => sum + getCollectionProgress(bundle), 0) / bundles.length
+    ? bundles.reduce((sum, bundle) => sum + getProjectProgress(bundle), 0) / bundles.length
     : 0;
   const annualEnergy = bundles.reduce((sum, bundle) => sum + getProjectAnnualEnergy(bundle), 0);
 
@@ -485,6 +570,7 @@ function EnergyEfficiencyModule({
             {bundles.map((bundle) => {
               const saving = getProjectSaving(bundle);
               const evaluation = getEvaluation(bundle);
+              const stage = getAliProjectStage(bundle);
               return (
                 <tr key={bundle.project.id} className="cursor-pointer hover:bg-slate-900/60" onClick={() => onSelectProject(bundle.project)}>
                   <td className="px-4 py-3 text-white">{bundle.project.name}</td>
@@ -497,6 +583,8 @@ function EnergyEfficiencyModule({
                     <ModuleActionButton
                       icon={<BarChart3 className="h-3.5 w-3.5" />}
                       label={evaluation ? '查看评估' : '开始评估'}
+                      disabled={stage < 2}
+                      title={stage < 2 ? '完成数据收资后进入能效评估' : undefined}
                       onClick={() => onOpenProjectModule(bundle.project, { surveyTab: 'evaluation' })}
                     />
                   </td>
@@ -520,7 +608,7 @@ function PlanGenerationModule({
   onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
 }) {
   const snapshotCount = bundles.reduce((sum, bundle) => sum + bundle.snapshots.length, 0);
-  const readyCount = bundles.filter((bundle) => bundle.solution?.gateValidation.canSnapshot).length;
+  const readyCount = bundles.filter((bundle) => getAliProjectStage(bundle) === 3).length;
 
   return (
     <div className="space-y-5">
@@ -542,21 +630,26 @@ function PlanGenerationModule({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800 bg-slate-950/40 text-slate-300">
-            {bundles.map((bundle) => (
-              <tr key={bundle.project.id} className="cursor-pointer hover:bg-slate-900/60" onClick={() => onSelectProject(bundle.project)}>
-                <td className="px-4 py-3 text-white">{bundle.project.name}</td>
-                <td className="px-4 py-3">{bundle.snapshots.length}</td>
-                <td className="px-4 py-3">{bundle.solution?.lastSnapshotAt ? new Date(bundle.solution.lastSnapshotAt).toLocaleString('zh-CN') : '--'}</td>
-                <td className="px-4 py-3">{bundle.solution?.gateValidation.canSnapshot ? '可生成' : '待补齐'}</td>
-                <td className="px-4 py-3">
-                  <ModuleActionButton
-                    icon={<FileText className="h-3.5 w-3.5" />}
-                    label="进入方案"
-                    onClick={() => onOpenProjectModule(bundle.project, { section: 'solution' })}
-                  />
-                </td>
-              </tr>
-            ))}
+            {bundles.map((bundle) => {
+              const stage = getAliProjectStage(bundle);
+              return (
+                <tr key={bundle.project.id} className="cursor-pointer hover:bg-slate-900/60" onClick={() => onSelectProject(bundle.project)}>
+                  <td className="px-4 py-3 text-white">{bundle.project.name}</td>
+                  <td className="px-4 py-3">{bundle.snapshots.length}</td>
+                  <td className="px-4 py-3">{bundle.solution?.lastSnapshotAt ? new Date(bundle.solution.lastSnapshotAt).toLocaleString('zh-CN') : '--'}</td>
+                  <td className="px-4 py-3">{stage === 3 ? (getHasScheme(bundle) ? '已生成' : '可生成') : '待完成能效评估'}</td>
+                  <td className="px-4 py-3">
+                    <ModuleActionButton
+                      icon={<FileText className="h-3.5 w-3.5" />}
+                      label={getHasScheme(bundle) ? '查看报告' : '生成方案'}
+                      disabled={stage !== 3}
+                      title={stage !== 3 ? '完成能效评估后进入方案生成' : undefined}
+                      onClick={() => onOpenProjectModule(bundle.project, { section: 'solution' })}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -573,9 +666,7 @@ export default function SurveyWorkflowPage({
   onSelectProject,
   onOpenProjectModule,
 }: Props) {
-  const surveyProjects = useMemo(() => (
-    projects.filter((project) => project.current_phase === 'survey' || project.current_phase === 'proposal')
-  ), [projects]);
+  const surveyProjects = useMemo(() => projects, [projects]);
   const [bundles, setBundles] = useState<ProjectSurveyBundle[]>([]);
   const [bundleLoading, setBundleLoading] = useState(false);
   const [bundleError, setBundleError] = useState<string | null>(null);

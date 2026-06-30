@@ -1337,6 +1337,55 @@ export async function deleteProjectCoolingStation(
   return mapHvacSurveyWorkspace(response.item);
 }
 
+export interface ProjectSurveyFilePayload {
+  stationId?: string | null;
+  fileType: ProjectSurveyFile['fileType'];
+  fileName: string;
+  storageBucket?: string;
+  storagePath: string;
+  contentBase64?: string;
+  mimeType?: string;
+  fileSize?: number;
+  extractionStatus?: ProjectSurveyFile['extractionStatus'];
+  confidence?: number | null;
+  errorMessage?: string;
+  rawExtraction?: Record<string, unknown>;
+  reviewedPayload?: Record<string, unknown>;
+}
+
+export async function createProjectSurveyFile(
+  projectId: string,
+  input: ProjectSurveyFilePayload,
+): Promise<ProjectHvacSurveyWorkspace> {
+  const response = await apiRequest<{ item: RawHvacSurveyWorkspace }>(
+    `/v1/projects/${projectId}/hvac-survey/files`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+  return mapHvacSurveyWorkspace(response.item);
+}
+
+export async function reviewProjectSurveyFile(
+  projectId: string,
+  fileId: string,
+  input: {
+    decision: 'approve' | 'reject';
+    reviewedPayload?: Record<string, unknown>;
+    errorMessage?: string;
+  },
+): Promise<ProjectHvacSurveyWorkspace> {
+  const response = await apiRequest<{ item: RawHvacSurveyWorkspace }>(
+    `/v1/projects/${projectId}/hvac-survey/files/${fileId}/review`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+  return mapHvacSurveyWorkspace(response.item);
+}
+
 export async function replaceProjectHvacEquipmentAssets(
   projectId: string,
   input: ProjectHvacEquipmentAsset[],

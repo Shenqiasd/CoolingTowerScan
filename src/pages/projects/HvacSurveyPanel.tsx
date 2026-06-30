@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Calculator,
   ClipboardCheck,
@@ -11,14 +11,18 @@ import {
   Plus,
   Save,
   Trash2,
+  Upload,
   Warehouse,
   type LucideIcon,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 import {
+  createProjectSurveyFile,
   deleteProjectCoolingStation,
   replaceProjectHvacEquipmentAssets,
   replaceProjectHvacMonthlyProfiles,
+  reviewProjectSurveyFile,
   runProjectHvacEvaluation,
   upsertProjectCoolingStation,
 } from '../../api/projects';
@@ -29,6 +33,8 @@ import {
   HVAC_DEVICE_TYPE_LABELS,
   HVAC_REVIEW_STATUS_LABELS,
   HVAC_SAVING_MODE_LABELS,
+  SURVEY_EXTRACTION_STATUS_LABELS,
+  SURVEY_FILE_TYPE_LABELS,
   serializeHvacEquipmentDrafts,
   serializeHvacMonthlyProfileDrafts,
   type CoolingStationPayload,
@@ -38,6 +44,7 @@ import {
   type HvacOperationStrategy,
   type HvacReviewStatus,
   type HvacSavingMode,
+  type SurveyFileType,
   type ProjectHvacSurveyWorkspace,
 } from '../../utils/projectHvacSurveyWorkspace';
 import type { EquipmentStatus } from '../../utils/projectSurveyWorkspace';
@@ -71,6 +78,7 @@ const EQUIPMENT_STATUS_LABELS: Record<EquipmentStatus, string> = {
 };
 
 const MONTH_LABELS = Array.from({ length: 12 }, (_, index) => `${index + 1}月`);
+const SURVEY_STORAGE_BUCKET = 'survey-files';
 
 interface HvacSurveyPanelProps {
   projectId: string;
@@ -99,6 +107,56 @@ function emptyStationDraft(): CoolingStationPayload {
   };
 }
 
+function formatJsonPayload(value: Record<string, unknown>) {
+  return JSON.stringify(value, null, 2);
+}
+
+function getDefaultReviewPayload(file: ProjectHvacSurveyWorkspace['files'][number]) {
+  if (Object.keys(file.reviewedPayload).length > 0) {
+    return file.reviewedPayload;
+  }
+
+  return file.rawExtraction;
+}
+
+async function extractTabularRows(file: File) {
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  if (!ext || !['csv', 'xlsx', 'xls'].includes(ext)) {
+    return [];
+  }
+
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer);
+  const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+  return XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+    defval: '',
+  });
+}
+
+async function readFileBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      resolve(result.includes(',') ? result.split(',')[1] : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('文件读取失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildDefaultReviewedPayload(fileType: SurveyFileType, rows: Record<string, unknown>[]) {
+  if (fileType === 'device_nameplate' || fileType === 'device_ledger') {
+    return { assets: rows };
+  }
+
+  if (fileType === 'operation_record') {
+    return { records: rows };
+  }
+
+  return { rows };
+}
+
 export function HvacSurveyPanel({
   projectId,
   workspace,
@@ -107,8 +165,12 @@ export function HvacSurveyPanel({
   onAuditRefresh,
 }: HvacSurveyPanelProps) {
   const [activeTab, setActiveTab] = useState<HvacTab>(initialTab);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [stationDraft, setStationDraft] = useState<CoolingStationPayload>(emptyStationDraft());
   const [equipmentDrafts, setEquipmentDrafts] = useState<HvacEquipmentAssetDraft[]>([]);
+  const [uploadFileType, setUploadFileType] = useState<SurveyFileType>('device_ledger');
+  const [uploadStationId, setUploadStationId] = useState('');
+  const [reviewPayloadDrafts, setReviewPayloadDrafts] = useState<Record<string, string>>({});
   const [selectedEquipmentId, setSelectedEquipmentId] = useState('');
   const [modelYear, setModelYear] = useState(String(workspace.latestEvaluation?.year ?? currentYear()));
   const [monthlyDrafts, setMonthlyDrafts] = useState<HvacMonthlyProfileDraft[]>([]);
@@ -120,6 +182,8 @@ export function HvacSurveyPanel({
   const [savingEquipment, setSavingEquipment] = useState(false);
   const [savingMonthly, setSavingMonthly] = useState(false);
   const [runningEvaluation, setRunningEvaluation] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [reviewingFileId, setReviewingFileId] = useState('');
 
   const approvedAssets = useMemo(
     () => workspace.equipmentAssets.filter((item) => item.reviewStatus === 'approved'),
@@ -206,6 +270,77 @@ export function HvacSurveyPanel({
       setPanelError(error instanceof Error ? error.message : '冷冻站删除失败');
     } finally {
       setSavingStation(false);
+    }
+  }
+
+  async function handleUploadSurveyFile(file: File) {
+    setUploadingFile(true);
+    setPanelError(null);
+    setPanelNotice(null);
+    try {
+      const rows = await extractTabularRows(file);
+      const storagePath = `${projectId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const contentBase64 = await readFileBase64(file);
+
+      const rawExtraction = rows.length > 0
+        ? {
+            rows,
+            source: 'browser-tabular-parser',
+          }
+        : {
+            rows: [],
+            source: 'manual-review-required',
+          };
+      const updated = await createProjectSurveyFile(projectId, {
+        stationId: uploadStationId || null,
+        fileType: uploadFileType,
+        fileName: file.name,
+        storageBucket: SURVEY_STORAGE_BUCKET,
+        storagePath,
+        contentBase64,
+        mimeType: file.type,
+        fileSize: file.size,
+        extractionStatus: 'needs_review',
+        rawExtraction,
+        reviewedPayload: buildDefaultReviewedPayload(uploadFileType, rows),
+      });
+      onWorkspaceChange(updated);
+      setPanelNotice(rows.length > 0 ? '资料已上传并生成待审核数据' : '资料已上传，请在识别审核中补充结构化数据');
+      await refreshAudit();
+    } catch (error) {
+      setPanelError(error instanceof Error ? error.message : '资料上传失败');
+    } finally {
+      setUploadingFile(false);
+    }
+  }
+
+  async function handleReviewFile(fileId: string, decision: 'approve' | 'reject') {
+    setReviewingFileId(fileId);
+    setPanelError(null);
+    setPanelNotice(null);
+    try {
+      let reviewedPayload: Record<string, unknown> | undefined;
+      const draft = reviewPayloadDrafts[fileId];
+      if (draft?.trim()) {
+        const parsed = JSON.parse(draft) as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('审核数据必须是 JSON object');
+        }
+        reviewedPayload = parsed as Record<string, unknown>;
+      }
+
+      const updated = await reviewProjectSurveyFile(projectId, fileId, {
+        decision,
+        reviewedPayload,
+        errorMessage: decision === 'reject' ? '人工审核驳回' : undefined,
+      });
+      onWorkspaceChange(updated);
+      setPanelNotice(decision === 'approve' ? '审核通过，数据已写入正式台账' : '文件已驳回');
+      await refreshAudit();
+    } catch (error) {
+      setPanelError(error instanceof Error ? error.message : '审核失败');
+    } finally {
+      setReviewingFileId('');
     }
   }
 
@@ -448,14 +583,49 @@ export function HvacSurveyPanel({
 
       {activeTab === 'files' ? (
         <div className="space-y-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                void handleUploadSurveyFile(file);
+              }
+              event.target.value = '';
+            }}
+          />
+          <div className="grid gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-4 md:grid-cols-[1fr_1fr_auto]">
+            <SelectField label="资料类型" value={uploadFileType} onChange={(value) => setUploadFileType(value as SurveyFileType)}>
+              {Object.entries(SURVEY_FILE_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </SelectField>
+            <SelectField label="所属冷冻站" value={uploadStationId} onChange={setUploadStationId}>
+              <option value="">项目级资料</option>
+              {workspace.stations.map((station) => (
+                <option key={station.id} value={station.id}>{station.name}</option>
+              ))}
+            </SelectField>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingFile}
+              className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-cyan-900/40"
+            >
+              {uploadingFile ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              上传资料
+            </button>
+          </div>
           {workspace.files.length === 0 ? (
             <EmptyState text="暂无收资文件" />
           ) : workspace.files.map((file) => (
             <div key={file.id} className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3">
               <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                 <span className="text-sm font-medium text-white">{file.fileName}</span>
-                <span>{file.fileType}</span>
-                <span>{file.extractionStatus}</span>
+                <span>{SURVEY_FILE_TYPE_LABELS[file.fileType]}</span>
+                <span>{SURVEY_EXTRACTION_STATUS_LABELS[file.extractionStatus]}</span>
                 <span>{formatNumber(file.fileSize)} bytes</span>
               </div>
               {file.errorMessage ? <p className="mt-2 text-xs text-rose-200">{file.errorMessage}</p> : null}
@@ -466,19 +636,72 @@ export function HvacSurveyPanel({
 
       {activeTab === 'review' ? (
         <div className="space-y-3">
-          {workspace.operationRecords.length === 0 ? (
-            <EmptyState text="暂无运行记录" />
-          ) : workspace.operationRecords.map((record) => (
-            <div key={record.id} className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3">
-              <div className="grid gap-2 text-xs text-slate-400 md:grid-cols-4">
-                <span>{record.recordDate ?? '未填日期'} {record.recordTime}</span>
-                <span>运行 {record.operatingHours ?? 0}h</span>
-                <span>负荷 {record.loadRatePct ?? 0}%</span>
-                <span>{HVAC_REVIEW_STATUS_LABELS[record.reviewStatus]}</span>
+          {workspace.files.length === 0 ? (
+            <EmptyState text="暂无待审核资料" />
+          ) : workspace.files.map((file) => {
+            const draftValue = reviewPayloadDrafts[file.id]
+              ?? formatJsonPayload(getDefaultReviewPayload(file));
+            return (
+              <div key={file.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">{file.fileName}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {SURVEY_FILE_TYPE_LABELS[file.fileType]} · {SURVEY_EXTRACTION_STATUS_LABELS[file.extractionStatus]}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleReviewFile(file.id, 'approve')}
+                      disabled={reviewingFileId === file.id || file.extractionStatus === 'reviewed'}
+                      className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-900/40"
+                    >
+                      {reviewingFileId === file.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
+                      审核入库
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleReviewFile(file.id, 'reject')}
+                      disabled={reviewingFileId === file.id || file.extractionStatus === 'reviewed'}
+                      title={file.extractionStatus === 'reviewed' ? '已入库文件需编辑后重新入库，不能直接驳回' : undefined}
+                      className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs text-rose-200 hover:border-rose-400/60 disabled:opacity-50"
+                    >
+                      驳回
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  rows={8}
+                  value={draftValue}
+                  onChange={(event) => setReviewPayloadDrafts((prev) => ({
+                    ...prev,
+                    [file.id]: event.target.value,
+                  }))}
+                  className="mt-3 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-200 focus:border-cyan-500/50 focus:outline-none"
+                />
+                {file.errorMessage ? <p className="mt-2 text-xs text-rose-200">{file.errorMessage}</p> : null}
               </div>
-              {record.notes ? <p className="mt-2 text-xs text-slate-500">{record.notes}</p> : null}
+            );
+          })}
+          <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+            <p className="text-xs font-medium text-white">已入库运行记录</p>
+            <div className="mt-3 space-y-2">
+              {workspace.operationRecords.length === 0 ? (
+                <EmptyState text="暂无运行记录" />
+              ) : workspace.operationRecords.map((record) => (
+                <div key={record.id} className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-3">
+                  <div className="grid gap-2 text-xs text-slate-400 md:grid-cols-4">
+                    <span>{record.recordDate ?? '未填日期'} {record.recordTime}</span>
+                    <span>运行 {record.operatingHours ?? 0}h</span>
+                    <span>负荷 {record.loadRatePct ?? 0}%</span>
+                    <span>{HVAC_REVIEW_STATUS_LABELS[record.reviewStatus]}</span>
+                  </div>
+                  {record.notes ? <p className="mt-2 text-xs text-slate-500">{record.notes}</p> : null}
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
       ) : null}
 

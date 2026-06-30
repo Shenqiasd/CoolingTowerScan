@@ -100,17 +100,17 @@ export default function LifecycleSidebar({
 
   useEffect(() => {
     if (activeView === 'dashboard') {
-      setExpandedPhase(activeProjectPhase || null);
+      setExpandedPhase(activeSurveyWorkflow ? 'survey' : activeProjectPhase || null);
       return;
     }
 
     setExpandedPhase(activeView === 'candidates' || activeView === 'leads' ? 'qualification' : 'prospecting');
-  }, [activeProjectPhase, activeView]);
+  }, [activeProjectPhase, activeSurveyWorkflow, activeView]);
 
   const isDashboard = activeView === 'dashboard';
   // activePhase: which phase is currently active (based on active sub-step)
   const activePhase = isDashboard
-    ? activeProjectPhase || null
+    ? activeSurveyWorkflow ? 'survey' : activeProjectPhase || null
     : activeView === 'candidates' || activeView === 'leads'
       ? 'qualification'
       : STEP_TO_PHASE[activeStep];
@@ -128,7 +128,7 @@ export default function LifecycleSidebar({
         <button
           onClick={() => onViewChange('dashboard')}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all ${
-            isDashboard && !activeProjectPhase
+            isDashboard && !activeProjectPhase && !activeSurveyWorkflow
               ? 'bg-white/10 border border-white/20 text-white'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent'
           }`}
@@ -237,7 +237,7 @@ export default function LifecycleSidebar({
                     );
                   })}
                   {phase === 'survey' && SURVEY_WORKFLOW_VIEWS.map((module) => {
-                    const isSurveyModuleActive = activeProjectPhase === 'survey' && activeSurveyWorkflow === module;
+                    const isSurveyModuleActive = activeSurveyWorkflow === module;
                     return (
                     <button
                       key={module}
