@@ -2378,6 +2378,18 @@ async function uploadSurveyFileContent(
   if (content.length === 0) {
     throw new Error('survey file content is empty');
   }
+  const { error: bucketError } = await supabaseAdmin.storage.getBucket(bucket);
+  if (bucketError) {
+    const { error: createBucketError } = await supabaseAdmin.storage.createBucket(bucket, {
+      public: false,
+    });
+    if (
+      createBucketError
+      && !createBucketError.message.toLowerCase().includes('already exists')
+    ) {
+      throw createBucketError;
+    }
+  }
 
   const { error } = await supabaseAdmin.storage
     .from(bucket)
