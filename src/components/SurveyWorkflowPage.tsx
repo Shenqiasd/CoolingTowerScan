@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  ArrowRight,
   AlertTriangle,
   BarChart3,
   CheckCircle2,
@@ -27,6 +28,11 @@ import {
   HVAC_REVIEW_STATUS_LABELS,
 } from '../utils/projectHvacSurveyWorkspace';
 
+export type SurveyProjectTarget = {
+  surveyTab?: 'overview' | 'stations' | 'files' | 'review' | 'assets' | 'modeling' | 'evaluation' | 'handoff';
+  section?: 'solution';
+};
+
 interface Props {
   projects: Project[];
   loading: boolean;
@@ -34,6 +40,7 @@ interface Props {
   activeModule: SurveyWorkflowView;
   onInitializeProject: () => void | Promise<void>;
   onSelectProject: (project: Project) => void;
+  onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
 }
 
 interface ProjectSurveyBundle {
@@ -154,6 +161,63 @@ function ModuleShell({
   );
 }
 
+function ModuleActionButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/60 px-2.5 py-1.5 text-[11px] text-slate-300 transition-colors hover:border-emerald-500/50 hover:text-white"
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function ProjectModuleActions({
+  project,
+  onOpenProjectModule,
+}: {
+  project: Project;
+  onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap gap-2">
+      <ModuleActionButton
+        icon={<FileSpreadsheet className="h-3.5 w-3.5" />}
+        label="数据收资"
+        onClick={() => onOpenProjectModule(project, { surveyTab: 'files' })}
+      />
+      <ModuleActionButton
+        icon={<Database className="h-3.5 w-3.5" />}
+        label="数据审核"
+        onClick={() => onOpenProjectModule(project, { surveyTab: 'review' })}
+      />
+      <ModuleActionButton
+        icon={<BarChart3 className="h-3.5 w-3.5" />}
+        label="能效评估"
+        onClick={() => onOpenProjectModule(project, { surveyTab: 'evaluation' })}
+      />
+      <ModuleActionButton
+        icon={<FileText className="h-3.5 w-3.5" />}
+        label="方案生成"
+        onClick={() => onOpenProjectModule(project, { section: 'solution' })}
+      />
+    </div>
+  );
+}
+
 function EmptyState({
   initializing,
   onInitializeProject,
@@ -180,23 +244,28 @@ function EmptyState({
 function ProjectFlowCard({
   bundle,
   onSelectProject,
+  onOpenProjectModule,
 }: {
   bundle: ProjectSurveyBundle;
   onSelectProject: (project: Project) => void;
+  onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
 }) {
   const hvac = bundle.hvac;
   const progress = getCollectionProgress(bundle);
   const annualEnergy = getProjectAnnualEnergy(bundle);
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelectProject(bundle.project)}
-      className="w-full rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-4 text-left transition-colors hover:border-slate-700 hover:bg-slate-900"
-    >
+    <div className="w-full rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-4 text-left transition-colors hover:border-slate-700 hover:bg-slate-900">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-white">{bundle.project.name}</div>
+          <button
+            type="button"
+            onClick={() => onSelectProject(bundle.project)}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-white transition-colors hover:text-emerald-300"
+          >
+            {bundle.project.name}
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
           <div className="mt-1 text-[11px] text-slate-500">{bundle.project.project_code || bundle.project.id}</div>
         </div>
         <div className="text-right text-[11px] text-slate-500">
@@ -213,7 +282,8 @@ function ProjectFlowCard({
       <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-800">
         <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round(progress * 100)}%` }} />
       </div>
-    </button>
+      <ProjectModuleActions project={bundle.project} onOpenProjectModule={onOpenProjectModule} />
+    </div>
   );
 }
 
@@ -229,9 +299,11 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 function OverviewModule({
   bundles,
   onSelectProject,
+  onOpenProjectModule,
 }: {
   bundles: ProjectSurveyBundle[];
   onSelectProject: (project: Project) => void;
+  onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
 }) {
   const equipmentCount = bundles.reduce((sum, bundle) => sum + (bundle.hvac?.equipmentAssets.length ?? 0), 0);
   const pendingAudit = bundles.reduce((sum, bundle) => (
@@ -254,7 +326,12 @@ function OverviewModule({
       </div>
       <div className="space-y-3">
         {bundles.map((bundle) => (
-          <ProjectFlowCard key={bundle.project.id} bundle={bundle} onSelectProject={onSelectProject} />
+          <ProjectFlowCard
+            key={bundle.project.id}
+            bundle={bundle}
+            onSelectProject={onSelectProject}
+            onOpenProjectModule={onOpenProjectModule}
+          />
         ))}
       </div>
     </div>
@@ -264,23 +341,37 @@ function OverviewModule({
 function DataCollectionModule({
   bundles,
   onSelectProject,
+  onOpenProjectModule,
 }: {
   bundles: ProjectSurveyBundle[];
   onSelectProject: (project: Project) => void;
+  onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
 }) {
   return (
     <div className="space-y-3">
       {bundles.map((bundle) => (
-        <ProjectFlowCard key={bundle.project.id} bundle={bundle} onSelectProject={onSelectProject} />
+        <ProjectFlowCard
+          key={bundle.project.id}
+          bundle={bundle}
+          onSelectProject={onSelectProject}
+          onOpenProjectModule={onOpenProjectModule}
+        />
       ))}
     </div>
   );
 }
 
-function DataAuditModule({ bundles }: { bundles: ProjectSurveyBundle[] }) {
+function DataAuditModule({
+  bundles,
+  onOpenProjectModule,
+}: {
+  bundles: ProjectSurveyBundle[];
+  onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
+}) {
   const auditRows = bundles.flatMap((bundle) => [
     ...(bundle.hvac?.files.map((file) => ({
       id: file.id,
+      project: bundle.project,
       projectName: bundle.project.name,
       name: file.fileName,
       type: file.fileType,
@@ -289,6 +380,7 @@ function DataAuditModule({ bundles }: { bundles: ProjectSurveyBundle[] }) {
     })) ?? []),
     ...(bundle.hvac?.equipmentAssets.map((asset) => ({
       id: asset.id,
+      project: bundle.project,
       projectName: bundle.project.name,
       name: asset.equipmentName || asset.model || '未命名设备',
       type: HVAC_DEVICE_TYPE_LABELS[asset.deviceType],
@@ -298,33 +390,56 @@ function DataAuditModule({ bundles }: { bundles: ProjectSurveyBundle[] }) {
   ]);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-800">
-      <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
-        <thead className="bg-slate-900 text-slate-500">
-          <tr>
-            <th className="px-4 py-3 font-medium">项目名称</th>
-            <th className="px-4 py-3 font-medium">数据名称</th>
-            <th className="px-4 py-3 font-medium">类型</th>
-            <th className="px-4 py-3 font-medium">置信度</th>
-            <th className="px-4 py-3 font-medium">状态</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-800 bg-slate-950/40 text-slate-300">
-          {auditRows.length === 0 ? (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-lg border border-slate-800">
+        <table className="min-w-full divide-y divide-slate-800 text-left text-xs">
+          <thead className="bg-slate-900 text-slate-500">
             <tr>
-              <td colSpan={5} className="px-4 py-10 text-center text-slate-500">暂无审核数据</td>
+              <th className="px-4 py-3 font-medium">项目名称</th>
+              <th className="px-4 py-3 font-medium">数据名称</th>
+              <th className="px-4 py-3 font-medium">类型</th>
+              <th className="px-4 py-3 font-medium">置信度</th>
+              <th className="px-4 py-3 font-medium">状态</th>
+              <th className="px-4 py-3 font-medium">操作</th>
             </tr>
-          ) : auditRows.map((row) => (
-            <tr key={row.id}>
-              <td className="px-4 py-3">{row.projectName}</td>
-              <td className="px-4 py-3 text-white">{row.name}</td>
-              <td className="px-4 py-3">{row.type}</td>
-              <td className="px-4 py-3">{row.confidence === null ? '--' : formatPercent(row.confidence)}</td>
-              <td className="px-4 py-3">{row.status}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-800 bg-slate-950/40 text-slate-300">
+            {auditRows.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-slate-500">暂无审核数据，可从下方项目入口进入审核工作台。</td>
+              </tr>
+            ) : auditRows.map((row) => (
+              <tr key={row.id}>
+                <td className="px-4 py-3">{row.projectName}</td>
+                <td className="px-4 py-3 text-white">{row.name}</td>
+                <td className="px-4 py-3">{row.type}</td>
+                <td className="px-4 py-3">{row.confidence === null ? '--' : formatPercent(row.confidence)}</td>
+                <td className="px-4 py-3">{row.status}</td>
+                <td className="px-4 py-3">
+                  <ModuleActionButton
+                    icon={<Database className="h-3.5 w-3.5" />}
+                    label="进入审核"
+                    onClick={() => onOpenProjectModule(row.project, { surveyTab: 'review' })}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {bundles.map((bundle) => (
+          <button
+            key={bundle.project.id}
+            type="button"
+            onClick={() => onOpenProjectModule(bundle.project, { surveyTab: 'review' })}
+            className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-3 text-left text-xs text-slate-300 transition-colors hover:border-emerald-500/50 hover:text-white"
+          >
+            <span className="truncate">{bundle.project.name}</span>
+            <span className="shrink-0 text-slate-500">进入数据审核</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -332,9 +447,11 @@ function DataAuditModule({ bundles }: { bundles: ProjectSurveyBundle[] }) {
 function EnergyEfficiencyModule({
   bundles,
   onSelectProject,
+  onOpenProjectModule,
 }: {
   bundles: ProjectSurveyBundle[];
   onSelectProject: (project: Project) => void;
+  onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
 }) {
   const evaluated = bundles.filter((bundle) => Boolean(getEvaluation(bundle)));
   const totalSaving = bundles.reduce((sum, bundle) => sum + getProjectSaving(bundle).energy, 0);
@@ -361,6 +478,7 @@ function EnergyEfficiencyModule({
               <th className="px-4 py-3 font-medium">节能潜力</th>
               <th className="px-4 py-3 font-medium">节能率</th>
               <th className="px-4 py-3 font-medium">状态</th>
+              <th className="px-4 py-3 font-medium">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800 bg-slate-950/40 text-slate-300">
@@ -375,6 +493,13 @@ function EnergyEfficiencyModule({
                   <td className="px-4 py-3">{formatKwh(saving.energy)}</td>
                   <td className="px-4 py-3">{formatPercent(saving.rate)}</td>
                   <td className="px-4 py-3">{evaluation ? '已完成' : '待评估'}</td>
+                  <td className="px-4 py-3">
+                    <ModuleActionButton
+                      icon={<BarChart3 className="h-3.5 w-3.5" />}
+                      label={evaluation ? '查看评估' : '开始评估'}
+                      onClick={() => onOpenProjectModule(bundle.project, { surveyTab: 'evaluation' })}
+                    />
+                  </td>
                 </tr>
               );
             })}
@@ -388,9 +513,11 @@ function EnergyEfficiencyModule({
 function PlanGenerationModule({
   bundles,
   onSelectProject,
+  onOpenProjectModule,
 }: {
   bundles: ProjectSurveyBundle[];
   onSelectProject: (project: Project) => void;
+  onOpenProjectModule: (project: Project, target: SurveyProjectTarget) => void;
 }) {
   const snapshotCount = bundles.reduce((sum, bundle) => sum + bundle.snapshots.length, 0);
   const readyCount = bundles.filter((bundle) => bundle.solution?.gateValidation.canSnapshot).length;
@@ -411,6 +538,7 @@ function PlanGenerationModule({
               <th className="px-4 py-3 font-medium">已生成</th>
               <th className="px-4 py-3 font-medium">最近更新</th>
               <th className="px-4 py-3 font-medium">状态</th>
+              <th className="px-4 py-3 font-medium">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800 bg-slate-950/40 text-slate-300">
@@ -420,6 +548,13 @@ function PlanGenerationModule({
                 <td className="px-4 py-3">{bundle.snapshots.length}</td>
                 <td className="px-4 py-3">{bundle.solution?.lastSnapshotAt ? new Date(bundle.solution.lastSnapshotAt).toLocaleString('zh-CN') : '--'}</td>
                 <td className="px-4 py-3">{bundle.solution?.gateValidation.canSnapshot ? '可生成' : '待补齐'}</td>
+                <td className="px-4 py-3">
+                  <ModuleActionButton
+                    icon={<FileText className="h-3.5 w-3.5" />}
+                    label="进入方案"
+                    onClick={() => onOpenProjectModule(bundle.project, { section: 'solution' })}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -436,8 +571,11 @@ export default function SurveyWorkflowPage({
   activeModule,
   onInitializeProject,
   onSelectProject,
+  onOpenProjectModule,
 }: Props) {
-  const surveyProjects = useMemo(() => projects.filter((project) => project.current_phase === 'survey'), [projects]);
+  const surveyProjects = useMemo(() => (
+    projects.filter((project) => project.current_phase === 'survey' || project.current_phase === 'proposal')
+  ), [projects]);
   const [bundles, setBundles] = useState<ProjectSurveyBundle[]>([]);
   const [bundleLoading, setBundleLoading] = useState(false);
   const [bundleError, setBundleError] = useState<string | null>(null);
@@ -523,11 +661,35 @@ export default function SurveyWorkflowPage({
   }
 
   const moduleContent: Record<SurveyWorkflowView, ReactNode> = {
-    overview: <OverviewModule bundles={bundles} onSelectProject={onSelectProject} />,
-    dataCollection: <DataCollectionModule bundles={bundles} onSelectProject={onSelectProject} />,
-    dataAudit: <DataAuditModule bundles={bundles} />,
-    energyEfficiency: <EnergyEfficiencyModule bundles={bundles} onSelectProject={onSelectProject} />,
-    planGeneration: <PlanGenerationModule bundles={bundles} onSelectProject={onSelectProject} />,
+    overview: (
+      <OverviewModule
+        bundles={bundles}
+        onSelectProject={onSelectProject}
+        onOpenProjectModule={onOpenProjectModule}
+      />
+    ),
+    dataCollection: (
+      <DataCollectionModule
+        bundles={bundles}
+        onSelectProject={onSelectProject}
+        onOpenProjectModule={onOpenProjectModule}
+      />
+    ),
+    dataAudit: <DataAuditModule bundles={bundles} onOpenProjectModule={onOpenProjectModule} />,
+    energyEfficiency: (
+      <EnergyEfficiencyModule
+        bundles={bundles}
+        onSelectProject={onSelectProject}
+        onOpenProjectModule={onOpenProjectModule}
+      />
+    ),
+    planGeneration: (
+      <PlanGenerationModule
+        bundles={bundles}
+        onSelectProject={onSelectProject}
+        onOpenProjectModule={onOpenProjectModule}
+      />
+    ),
   };
 
   return (

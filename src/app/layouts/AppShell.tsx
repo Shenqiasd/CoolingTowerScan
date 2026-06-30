@@ -13,7 +13,7 @@ import type { SidebarView } from '../../components/LifecycleSidebar';
 import DetectionPanel from '../../components/DetectionPanel';
 import ReportModal from '../../components/report/ReportModal';
 import ProjectDashboard from '../../components/ProjectDashboard';
-import SurveyWorkflowPage from '../../components/SurveyWorkflowPage';
+import SurveyWorkflowPage, { type SurveyProjectTarget } from '../../components/SurveyWorkflowPage';
 import { useEnterprises } from '../../hooks/useEnterprises';
 import { useMapMarkers } from '../../hooks/useMapMarkers';
 import { useStats } from '../../hooks/useStats';
@@ -156,6 +156,19 @@ function getSurveyWorkflowFromSearch(search: string): SurveyWorkflowView {
   return SURVEY_WORKFLOW_VIEWS.includes(value as SurveyWorkflowView)
     ? value as SurveyWorkflowView
     : 'overview';
+}
+
+function buildProjectModulePath(projectId: string, target?: SurveyProjectTarget) {
+  const params = new URLSearchParams();
+  if (target?.surveyTab) {
+    params.set('surveyTab', target.surveyTab);
+  }
+  if (target?.section) {
+    params.set('section', target.section);
+  }
+
+  const query = params.toString();
+  return query ? `/projects/${projectId}?${query}` : `/projects/${projectId}`;
 }
 
 function getSidebarView(pathname: string): SidebarView {
@@ -503,6 +516,9 @@ function AuthenticatedAppShell({ onLogout }: { onLogout: () => void }) {
               onInitializeProject={handleCreateProjectFromEnterprise}
               onSelectProject={(project) => {
                 navigate(`/projects/${project.id}`);
+              }}
+              onOpenProjectModule={(project, target) => {
+                navigate(buildProjectModulePath(project.id, target));
               }}
             />
           ) : (

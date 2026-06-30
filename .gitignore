@@ -26,3 +26,4 @@ supabase/.temp/
 # YOLO weights — large binary, stored in Supabase Storage
 *.pt
 *.pth
+.gstack/

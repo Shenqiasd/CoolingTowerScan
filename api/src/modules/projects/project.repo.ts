@@ -1446,6 +1446,7 @@ async function initializeProjectStages(
   supabaseAdmin: SupabaseClient,
   projectId: string,
   actorUserId: string,
+  initializedFrom = 'survey-bootstrap',
 ) {
   const timestamp = new Date().toISOString();
   const { error } = await supabaseAdmin
@@ -1463,7 +1464,7 @@ async function initializeProjectStages(
           blockers: [],
           gate_snapshot: {
             initializedBy: actorUserId,
-            initializedFrom: 'survey-bootstrap',
+            initializedFrom,
           },
         };
       }),
@@ -2317,11 +2318,47 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
           enterprise_id: lead.enterprise_id,
           site_id: lead.site_id,
           name,
-          current_phase: 'prospecting',
+          current_phase: 'survey',
           workflow_status: 'active',
           status: 'active',
           priority: lead.priority ?? 'medium',
           assigned_to: actorUserId,
+          phase_data: {
+            prospecting: {
+              source: 'lead-conversion',
+            },
+            qualification: {
+              status: 'qualified',
+              source: 'lead-conversion',
+            },
+            survey: {
+              infoCollection: {
+                siteContactName: '',
+                siteContactPhone: '',
+                siteAccessWindow: '',
+                operatingSchedule: '',
+                coolingSystemType: '',
+                powerAccessStatus: '',
+                waterTreatmentStatus: '',
+                notes: '',
+              },
+              surveyRecord: {
+                surveyDate: '',
+                surveyOwnerUserId: actorUserId,
+                participantNames: [],
+                onSiteFindings: '',
+                loadProfileSummary: '',
+                retrofitConstraints: '',
+                nextActions: '补充冷冻站、设备台账和运行记录后执行能效评估。',
+              },
+              riskSummary: '',
+            },
+            proposal: {},
+            bidding: {},
+            execution: {},
+            commissioning: {},
+            operations: {},
+          },
         })
         .select('id')
         .maybeSingle();
@@ -2334,29 +2371,7 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
         return null;
       }
 
-      const stageTimestamp = new Date().toISOString();
-      const { error: stageError } = await supabaseAdmin
-        .from('project_stage_states')
-        .upsert(
-          PROJECT_STAGE_CODES.map((stageCode, index) => ({
-            project_id: projectData.id,
-            stage_code: stageCode,
-            status: index === 0 ? 'in_progress' : 'not_started',
-            entered_at: index === 0 ? stageTimestamp : null,
-            blockers: [],
-            gate_snapshot: {
-              initializedBy: actorUserId,
-            },
-          })),
-          {
-            onConflict: 'project_id,stage_code',
-            ignoreDuplicates: false,
-          },
-        );
-
-      if (stageError) {
-        throw stageError;
-      }
+      await initializeProjectStages(supabaseAdmin, projectData.id, actorUserId, 'lead-conversion');
 
       const { error: leadUpdateError } = await supabaseAdmin
         .from('leads')
@@ -2903,9 +2918,11 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
 
       const timestamp = new Date().toISOString();
       const currentSurveyPhase = getPhaseDataValue(existing.phase_data, 'survey');
+      const currentProposalPhase = getPhaseDataValue(existing.phase_data, 'proposal');
       const { error: projectError } = await supabaseAdmin
         .from('projects')
         .update({
+          current_phase: 'proposal',
           phase_data: {
             ...(existing.phase_data ?? {}),
             survey: {
@@ -2914,6 +2931,11 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
               surveyRecord: getSurveyRecord(existing.phase_data),
               completionStatus: 'completed',
               completedAt: timestamp,
+            },
+            proposal: {
+              ...currentProposalPhase,
+              enteredFromSurveyAt: timestamp,
+              previousSurveyCompletedAt: timestamp,
             },
           },
         })
@@ -2924,24 +2946,48 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
       }
 
       const existingStage = (existing.project_stage_states ?? []).find((item) => item.stage_code === 'survey');
+      const existingProposalStage = (existing.project_stage_states ?? []).find((item) => item.stage_code === 'proposal');
+      const proposalStatus = existingProposalStage?.status === 'completed' || existingProposalStage?.status === 'pending_approval'
+        ? existingProposalStage.status
+        : 'in_progress';
       const { error: stageError } = await supabaseAdmin
         .from('project_stage_states')
-        .upsert({
-          project_id: projectId,
-          stage_code: 'survey',
-          status: 'completed',
-          entered_at: existingStage?.entered_at ?? timestamp,
-          due_at: existingStage?.due_at ?? null,
-          owner_user_id: existingStage?.owner_user_id ?? null,
-          approver_user_id: existingStage?.approver_user_id ?? null,
-          blockers: existingStage?.blockers ?? [],
-          gate_snapshot: {
-            ...(existingStage?.gate_snapshot ?? {}),
-            completionStatus: 'completed',
-            completedAt: timestamp,
+        .upsert([
+          {
+            project_id: projectId,
+            stage_code: 'survey',
+            status: 'completed',
+            entered_at: existingStage?.entered_at ?? timestamp,
+            due_at: existingStage?.due_at ?? null,
+            owner_user_id: existingStage?.owner_user_id ?? null,
+            approver_user_id: existingStage?.approver_user_id ?? null,
+            blockers: existingStage?.blockers ?? [],
+            gate_snapshot: {
+              ...(existingStage?.gate_snapshot ?? {}),
+              completionStatus: 'completed',
+              completedAt: timestamp,
+              nextGateLabel: '已交接至方案报价',
+            },
+            completed_at: timestamp,
           },
-          completed_at: timestamp,
-        }, {
+          {
+            project_id: projectId,
+            stage_code: 'proposal',
+            status: proposalStatus,
+            entered_at: existingProposalStage?.entered_at ?? timestamp,
+            due_at: existingProposalStage?.due_at ?? null,
+            owner_user_id: existingProposalStage?.owner_user_id ?? null,
+            approver_user_id: existingProposalStage?.approver_user_id ?? null,
+            blockers: existingProposalStage?.blockers ?? [],
+            gate_snapshot: {
+              ...(existingProposalStage?.gate_snapshot ?? {}),
+              enteredFromSurveyAt: timestamp,
+              previousSurveyCompletedAt: timestamp,
+              nextGateLabel: existingProposalStage?.gate_snapshot?.nextGateLabel ?? '生成方案并提交商业冻结',
+            },
+            completed_at: existingProposalStage?.completed_at ?? null,
+          },
+        ], {
           onConflict: 'project_id,stage_code',
           ignoreDuplicates: false,
         });
@@ -2952,6 +2998,7 @@ export function createProjectRepo(supabaseAdmin: SupabaseClient): ProjectRepo {
 
       await insertProjectAuditLog(supabaseAdmin, projectId, 'project.survey.completed', actorUserId, {
         completedAt: timestamp,
+        nextStage: 'proposal',
       });
 
       return getProjectSurveyWorkspace(supabaseAdmin, projectId);

@@ -42,7 +42,7 @@ import {
 } from '../../utils/projectHvacSurveyWorkspace';
 import type { EquipmentStatus } from '../../utils/projectSurveyWorkspace';
 
-type HvacTab =
+export type HvacTab =
   | 'overview'
   | 'stations'
   | 'files'
@@ -75,6 +75,7 @@ const MONTH_LABELS = Array.from({ length: 12 }, (_, index) => `${index + 1}月`)
 interface HvacSurveyPanelProps {
   projectId: string;
   workspace: ProjectHvacSurveyWorkspace;
+  initialTab?: HvacTab;
   onWorkspaceChange: (workspace: ProjectHvacSurveyWorkspace) => void;
   onAuditRefresh?: () => Promise<void>;
 }
@@ -101,10 +102,11 @@ function emptyStationDraft(): CoolingStationPayload {
 export function HvacSurveyPanel({
   projectId,
   workspace,
+  initialTab = 'overview',
   onWorkspaceChange,
   onAuditRefresh,
 }: HvacSurveyPanelProps) {
-  const [activeTab, setActiveTab] = useState<HvacTab>('overview');
+  const [activeTab, setActiveTab] = useState<HvacTab>(initialTab);
   const [stationDraft, setStationDraft] = useState<CoolingStationPayload>(emptyStationDraft());
   const [equipmentDrafts, setEquipmentDrafts] = useState<HvacEquipmentAssetDraft[]>([]);
   const [selectedEquipmentId, setSelectedEquipmentId] = useState('');
@@ -137,6 +139,10 @@ export function HvacSurveyPanel({
       return months.size === 12;
     }).length
   ), [approvedAssets, selectedModelYear, workspace.monthlyProfiles]);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     setEquipmentDrafts(createHvacEquipmentDrafts(workspace));

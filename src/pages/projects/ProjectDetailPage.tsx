@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -14,7 +14,7 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import {
   completeProjectSurvey,
@@ -70,7 +70,7 @@ import {
   type ProjectSurveyWorkspaceDraft,
   type SurveyRecordDraft,
 } from '../../utils/projectSurveyWorkspace';
-import { HvacSurveyPanel } from './HvacSurveyPanel';
+import { HvacSurveyPanel, type HvacTab } from './HvacSurveyPanel';
 import {
   createDefaultHvacSurveyWorkspace,
   HVAC_SAVING_MODE_LABELS,
@@ -112,6 +112,26 @@ const SOLUTION_FREEZE_STATUS_LABELS = {
   approved: '已批准',
   rejected: '已驳回',
 } as const;
+
+const HVAC_TABS = [
+  'overview',
+  'stations',
+  'files',
+  'review',
+  'assets',
+  'modeling',
+  'evaluation',
+  'handoff',
+] as const satisfies HvacTab[];
+
+function getRequestedHvacTab(search: string): HvacTab {
+  const value = new URLSearchParams(search).get('surveyTab');
+  return HVAC_TABS.includes(value as HvacTab) ? value as HvacTab : 'overview';
+}
+
+function getRequestedSection(search: string) {
+  return new URLSearchParams(search).get('section');
+}
 
 interface ProjectDraft {
   name: string;
@@ -225,7 +245,12 @@ function getSolutionSectionTone(isReady: boolean) {
 
 export default function ProjectDetailPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { projectId = '' } = useParams();
+  const requestedHvacTab = useMemo(() => getRequestedHvacTab(location.search), [location.search]);
+  const requestedSection = useMemo(() => getRequestedSection(location.search), [location.search]);
+  const surveySectionRef = useRef<HTMLElement | null>(null);
+  const solutionSectionRef = useRef<HTMLElement | null>(null);
   const [item, setItem] = useState<ProjectDetailData | null>(null);
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null);
   const [stageDrafts, setStageDrafts] = useState<Record<SopPhase, StageDraft>>({} as Record<SopPhase, StageDraft>);
@@ -357,6 +382,23 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     void loadProject();
   }, [loadProject]);
+
+  useEffect(() => {
+    const hasSurveyTarget = new URLSearchParams(location.search).has('surveyTab');
+    const target = requestedSection === 'solution'
+      ? solutionSectionRef.current
+      : hasSurveyTarget
+        ? surveySectionRef.current
+        : null;
+
+    if (!target) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      target.scrollIntoView({ block: 'start' });
+    });
+  }, [item?.id, location.search, requestedSection]);
 
   useEffect(() => {
     let mounted = true;
@@ -876,7 +918,7 @@ export default function ProjectDetailPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <section ref={surveySectionRef} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-medium text-white">项目主信息</h3>
@@ -1154,6 +1196,7 @@ export default function ProjectDetailPage() {
                   <HvacSurveyPanel
                     projectId={projectId}
                     workspace={hvacSurveyWorkspace}
+                    initialTab={requestedHvacTab}
                     onWorkspaceChange={setHvacSurveyWorkspace}
                     onAuditRefresh={async () => {
                       setAuditLogs(await getProjectAudit(projectId).catch(() => auditLogs));
@@ -1342,7 +1385,7 @@ export default function ProjectDetailPage() {
             ) : null}
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <section ref={solutionSectionRef} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-medium text-white">Solution Center</h3>
