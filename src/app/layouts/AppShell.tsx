@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, lazy, Suspense, useEffect, type SetStateAction } from 'react';
-import { Map, List, Loader2 } from 'lucide-react';
+import { useState, useCallback, useRef, lazy, Suspense, useEffect, type FormEvent, type SetStateAction } from 'react';
+import { Map, List, Loader2, Lock, LogOut } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import MapScreenshot from '../../components/screenshot';
 import type { ScreenshotResult } from '../../components/screenshot';
@@ -13,12 +13,15 @@ import type { SidebarView } from '../../components/LifecycleSidebar';
 import DetectionPanel from '../../components/DetectionPanel';
 import ReportModal from '../../components/report/ReportModal';
 import ProjectDashboard from '../../components/ProjectDashboard';
+import SurveyWorkflowPage, { type SurveyProjectTarget } from '../../components/SurveyWorkflowPage';
 import { useEnterprises } from '../../hooks/useEnterprises';
 import { useMapMarkers } from '../../hooks/useMapMarkers';
 import { useStats } from '../../hooks/useStats';
 import { useDetectionResults } from '../../hooks/useDetectionResults';
 import { useProjects } from '../../hooks/useProjects';
 import { useActiveScanTask } from '../../hooks/useActiveScanTask';
+import { loginWithPassword } from '../../api/auth';
+import { ApiClientError, clearAppAuthToken, getStoredAppAuthToken, storeAppAuthToken } from '../../api/client';
 import CandidateDetailPage from '../../pages/candidates/CandidateDetailPage';
 import CandidateListPage from '../../pages/candidates/CandidateListPage';
 import LeadDetailPage from '../../pages/leads/LeadDetailPage';
@@ -27,8 +30,8 @@ import ProjectDetailPage from '../../pages/projects/ProjectDetailPage';
 import type { Enterprise } from '../../types/enterprise';
 import type { PipelineStep, ScanSession, ScanDetection } from '../../types/pipeline';
 import { INITIAL_SCAN_SESSION } from '../../types/pipeline';
-import type { SopPhase } from '../../types/project';
-import { SOP_PHASES } from '../../types/project';
+import type { SopPhase, SurveyWorkflowView } from '../../types/project';
+import { SOP_PHASES, SURVEY_WORKFLOW_VIEWS } from '../../types/project';
 import { supabase } from '../../lib/supabase';
 import { importCsvFile } from '../../utils/csvImporter';
 import { importDetectionCsv } from '../../utils/detectionImporter';
@@ -48,6 +51,86 @@ import {
 
 const MapView = lazy(() => import('../../components/MapView'));
 
+function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
+  const [username, setUsername] = useState('user');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await loginWithPassword(username, password);
+      storeAppAuthToken(result.token, result.expiresAt);
+      onAuthenticated();
+    } catch (err) {
+      if (err instanceof ApiClientError && err.code === 'APP_AUTH_INVALID_CREDENTIALS') {
+        setError('账号或密码不正确');
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('登录失败');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-950 px-4 text-white">
+      <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-lg border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+        <div className="mb-6 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-300">
+            <Lock className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-base font-semibold">空调调研智能体平台</h1>
+            <p className="mt-1 text-xs text-slate-500">登录后进入项目概览与踏勘调研工作台</p>
+          </div>
+        </div>
+
+        <label className="mb-3 block">
+          <span className="mb-1.5 block text-xs text-slate-400">账号</span>
+          <input
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition-colors focus:border-emerald-500/60"
+            autoComplete="username"
+          />
+        </label>
+
+        <label className="mb-4 block">
+          <span className="mb-1.5 block text-xs text-slate-400">密码</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition-colors focus:border-emerald-500/60"
+            autoComplete="current-password"
+          />
+        </label>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+            {error}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+          登录
+        </button>
+      </form>
+    </div>
+  );
+}
+
 const DISCOVERY_PATHS: Record<PipelineStep, string> = {
   screenshot: '/discovery/screenshot',
   detection: '/discovery/detection',
@@ -58,6 +141,35 @@ const QUALIFICATION_PATHS = {
   candidates: '/candidates',
   leads: '/leads',
 } as const;
+
+function isSopPhase(value: string | null): value is SopPhase {
+  return Boolean(value && SOP_PHASES.includes(value as SopPhase));
+}
+
+function getProjectPhaseFromSearch(search: string): SopPhase | '' {
+  const value = new URLSearchParams(search).get('phase');
+  return isSopPhase(value) ? value : '';
+}
+
+function getSurveyWorkflowFromSearch(search: string): SurveyWorkflowView {
+  const value = new URLSearchParams(search).get('module');
+  return SURVEY_WORKFLOW_VIEWS.includes(value as SurveyWorkflowView)
+    ? value as SurveyWorkflowView
+    : 'overview';
+}
+
+function buildProjectModulePath(projectId: string, target?: SurveyProjectTarget) {
+  const params = new URLSearchParams();
+  if (target?.surveyTab) {
+    params.set('surveyTab', target.surveyTab);
+  }
+  if (target?.section) {
+    params.set('section', target.section);
+  }
+
+  const query = params.toString();
+  return query ? `/projects/${projectId}?${query}` : `/projects/${projectId}`;
+}
 
 function getSidebarView(pathname: string): SidebarView {
   if (pathname.startsWith('/projects')) {
@@ -111,7 +223,7 @@ function readRecentTaskListPreference(): string | null {
   return window.localStorage.getItem(RECENT_TASK_LIST_PREFERENCE_KEY);
 }
 
-export default function AppShell() {
+function AuthenticatedAppShell({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -120,6 +232,18 @@ export default function AppShell() {
   const isDashboard = activeView === 'dashboard';
   const isQualificationView = activeView === 'candidates' || activeView === 'leads';
   const isProjectDetailView = location.pathname.startsWith('/projects/');
+  const projectSearchParams = new URLSearchParams(location.search);
+  const hasSurveyModuleParam = projectSearchParams.has('module');
+  const hasProjectPhaseParam = projectSearchParams.has('phase');
+  const isSurveyWorkflowRoute = isDashboard
+    && !isProjectDetailView
+    && (hasSurveyModuleParam || !hasProjectPhaseParam);
+  const requestedProjectPhase = isDashboard && !isProjectDetailView && !hasSurveyModuleParam
+    ? getProjectPhaseFromSearch(location.search)
+    : '';
+  const activeSurveyWorkflow = isSurveyWorkflowRoute
+    ? getSurveyWorkflowFromSearch(location.search)
+    : null;
 
   const {
     session,
@@ -146,8 +270,10 @@ export default function AppShell() {
   const {
     projects,
     loading: projectsLoading,
+    error: projectsError,
     phaseFilter,
     setPhaseFilter,
+    initializeSurveyProject,
   } = useProjects();
 
   const [resultView, setResultView] = useState<ViewTab>('list');
@@ -170,6 +296,7 @@ export default function AppShell() {
     acc[phase] = projects.filter((project) => project.current_phase === phase).length;
     return acc;
   }, {} as Record<SopPhase, number>);
+  projectCounts.survey = projects.length;
 
   const handleDataImported = useCallback(() => {
     refresh();
@@ -259,6 +386,7 @@ export default function AppShell() {
 
   const handleViewChange = useCallback((view: SidebarView) => {
     if (view === 'dashboard') {
+      setPhaseFilter('');
       navigate('/projects');
       return;
     }
@@ -269,15 +397,31 @@ export default function AppShell() {
     }
 
     navigate(DISCOVERY_PATHS[view]);
-  }, [navigate]);
+  }, [navigate, setPhaseFilter]);
+
+  const handleProjectPhaseSelect = useCallback((phase: SopPhase) => {
+    setPhaseFilter(phase);
+    navigate(`/projects?phase=${phase}`);
+  }, [navigate, setPhaseFilter]);
+
+  const handleSurveyWorkflowSelect = useCallback((view: SurveyWorkflowView) => {
+    setPhaseFilter('');
+    navigate(view === 'overview' ? '/projects' : `/projects?module=${view}`);
+  }, [navigate, setPhaseFilter]);
+
+  const handleProjectPhaseFilter = useCallback((phase: SopPhase | '') => {
+    setPhaseFilter(phase);
+    navigate(phase ? `/projects?phase=${phase}` : '/projects');
+  }, [navigate, setPhaseFilter]);
 
   const handleStepChange = useCallback((step: PipelineStep) => {
     navigate(DISCOVERY_PATHS[step]);
   }, [navigate]);
 
-  const handleCreateProjectFromEnterprise = useCallback(() => {
-    navigate('/leads');
-  }, [navigate]);
+  const handleCreateProjectFromEnterprise = useCallback(async () => {
+    const project = await initializeSurveyProject();
+    navigate(`/projects/${project.id}`);
+  }, [initializeSurveyProject, navigate]);
 
   useEffect(() => {
     setIsTaskBannerCollapsed(getInitialTaskBannerCollapsed(
@@ -289,6 +433,14 @@ export default function AppShell() {
       readRecentTaskListPreference(),
     ));
   }, [activeStep]);
+
+  useEffect(() => {
+    if (!isDashboard || isProjectDetailView || requestedProjectPhase === phaseFilter) {
+      return;
+    }
+
+    setPhaseFilter(requestedProjectPhase);
+  }, [isDashboard, isProjectDetailView, phaseFilter, requestedProjectPhase, setPhaseFilter]);
 
   const handleTaskBannerToggle = useCallback(() => {
     setIsTaskBannerCollapsed((prev) => {
@@ -307,7 +459,7 @@ export default function AppShell() {
   }, []);
 
   return (
-    <div className="h-screen flex bg-slate-950 text-white overflow-hidden">
+    <div className="relative h-screen flex bg-slate-950 text-white overflow-hidden">
       <input
         ref={enterpriseFileRef}
         type="file"
@@ -338,6 +490,10 @@ export default function AppShell() {
       <LifecycleSidebar
         activeView={activeView}
         onViewChange={handleViewChange}
+        activeProjectPhase={isDashboard ? phaseFilter : ''}
+        onProjectPhaseSelect={handleProjectPhaseSelect}
+        activeSurveyWorkflow={activeSurveyWorkflow}
+        onSurveyWorkflowSelect={handleSurveyWorkflowSelect}
         activeStep={activeStep}
         onStepChange={handleStepChange}
         session={session}
@@ -350,15 +506,39 @@ export default function AppShell() {
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
+        <button
+          type="button"
+          onClick={onLogout}
+          className="absolute right-4 top-3 z-20 inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/90 px-2.5 py-1.5 text-[11px] text-slate-300 shadow-lg transition-colors hover:border-slate-500 hover:text-white"
+        >
+          <LogOut className="h-3.5 w-3.5" />
+          退出
+        </button>
         {isDashboard ? (
           isProjectDetailView ? (
             <ProjectDetailPage />
+          ) : activeSurveyWorkflow ? (
+            <SurveyWorkflowPage
+              projects={projects}
+              loading={projectsLoading}
+              error={projectsError}
+              activeModule={activeSurveyWorkflow}
+              onInitializeProject={handleCreateProjectFromEnterprise}
+              onSelectProject={(project) => {
+                navigate(`/projects/${project.id}`);
+              }}
+              onOpenProjectModule={(project, target) => {
+                navigate(buildProjectModulePath(project.id, target));
+              }}
+            />
           ) : (
             <ProjectDashboard
               projects={projects}
               loading={projectsLoading}
+              error={projectsError}
               phaseFilter={phaseFilter}
-              onPhaseFilter={setPhaseFilter}
+              surveyWorkflowView={null}
+              onPhaseFilter={handleProjectPhaseFilter}
               onCreateFromEnterprise={handleCreateProjectFromEnterprise}
               onSelectProject={(project) => {
                 navigate(`/projects/${project.id}`);
@@ -503,4 +683,19 @@ export default function AppShell() {
       )}
     </div>
   );
+}
+
+export default function AppShell() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(getStoredAppAuthToken()));
+
+  const handleLogout = useCallback(() => {
+    clearAppAuthToken();
+    setIsAuthenticated(false);
+  }, []);
+
+  if (!isAuthenticated) {
+    return <LoginScreen onAuthenticated={() => setIsAuthenticated(true)} />;
+  }
+
+  return <AuthenticatedAppShell onLogout={handleLogout} />;
 }

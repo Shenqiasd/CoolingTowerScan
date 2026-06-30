@@ -6,22 +6,25 @@ import {
   FolderKanban,
   Handshake,
   ListChecks,
+  Loader2,
   Plus,
   Search,
   ShieldAlert,
   UserSquare2,
 } from 'lucide-react';
 
-import type { Project, SopPhase } from '../types/project';
-import { SOP_PHASES, SOP_PHASE_LABELS } from '../types/project';
+import type { Project, SopPhase, SurveyWorkflowView } from '../types/project';
+import { SOP_PHASES, SOP_PHASE_LABELS, SURVEY_WORKFLOW_LABELS } from '../types/project';
 import { buildProjectWorkbenchSummary } from '../utils/projectWorkbench';
 
 interface Props {
   projects: Project[];
   loading: boolean;
+  error?: string | null;
   phaseFilter: SopPhase | '';
+  surveyWorkflowView?: SurveyWorkflowView | null;
   onPhaseFilter: (phase: SopPhase | '') => void;
-  onCreateFromEnterprise: () => void;
+  onCreateFromEnterprise: () => void | Promise<void>;
   onSelectProject: (project: Project) => void;
 }
 
@@ -58,6 +61,14 @@ const COMMERCIAL_VISIBLE_PHASES: SopPhase[] = [
   'commissioning',
   'operations',
 ];
+
+const SURVEY_WORKFLOW_DESCRIPTIONS: Record<SurveyWorkflowView, string> = {
+  overview: '查看踏勘调研阶段项目、收资进度、设备数量和后续业务入口。',
+  dataCollection: '按旧系统数据收资链路进入项目，维护冷冻站、设备台账、运行记录和基础资料。',
+  dataAudit: '对齐旧系统数据审核入口，聚焦设备铭牌、运行报表、识别置信度和写库前校验。',
+  energyEfficiency: '对齐旧系统能效评估入口，查看项目节能潜力、节能率和评估状态。',
+  planGeneration: '对齐旧系统方案生成入口，进入项目方案测算、报价和报告生成流程。',
+};
 
 function getPhaseSnapshot(project: Project) {
   const value = project.phase_data[project.current_phase];
@@ -139,12 +150,15 @@ function getSolutionProgressLabel(project: Project) {
 export default function ProjectDashboard({
   projects,
   loading,
+  error = null,
   phaseFilter,
+  surveyWorkflowView = null,
   onPhaseFilter,
   onCreateFromEnterprise,
   onSelectProject,
 }: Props) {
   const [search, setSearch] = useState('');
+  const [initializing, setInitializing] = useState(false);
 
   const workbench = useMemo(() => buildProjectWorkbenchSummary(projects), [projects]);
   const phaseCounts = useMemo(() => SOP_PHASES.reduce((acc, phase) => {
@@ -164,20 +178,35 @@ export default function ProjectDashboard({
     ));
   }, [projects, search]);
 
+  const headerTitle = surveyWorkflowView ? SURVEY_WORKFLOW_LABELS[surveyWorkflowView] : '项目中心';
+  const headerDescription = surveyWorkflowView
+    ? SURVEY_WORKFLOW_DESCRIPTIONS[surveyWorkflowView]
+    : '看项目节奏、待审批、阻塞和待交接项。';
+
+  const handleInitializeProject = async () => {
+    setInitializing(true);
+    try {
+      await onCreateFromEnterprise();
+    } finally {
+      setInitializing(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-slate-950">
       <div className="border-b border-slate-800 px-6 py-4">
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-white">项目中心</h2>
-            <p className="mt-0.5 text-xs text-slate-500">看项目节奏、待审批、阻塞和待交接项。</p>
+            <h2 className="text-lg font-semibold text-white">{headerTitle}</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{headerDescription}</p>
           </div>
           <button
-            onClick={onCreateFromEnterprise}
-            className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-500"
+            onClick={handleInitializeProject}
+            disabled={initializing}
+            className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Plus className="h-3.5 w-3.5" />
-            前往项目转化入口
+            {initializing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            初始化踏勘项目
           </button>
         </div>
 
@@ -227,12 +256,25 @@ export default function ProjectDashboard({
       </div>
 
       <div className="flex-1 space-y-2 overflow-y-auto px-6 pb-6">
-        {loading ? (
+        {error ? (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        ) : loading ? (
           <div className="py-12 text-center text-sm text-slate-500">项目加载中...</div>
         ) : filtered.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-800 px-6 py-12 text-center">
             <p className="text-sm text-slate-300">暂无项目</p>
-            <p className="mt-1 text-xs text-slate-500">从已双确认 Lead 创建项目后会出现在这里。</p>
+            <p className="mt-1 text-xs text-slate-500">可从当前已识别企业初始化踏勘项目。</p>
+            <button
+              type="button"
+              onClick={handleInitializeProject}
+              disabled={initializing}
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {initializing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              初始化踏勘项目
+            </button>
           </div>
         ) : (
           filtered.map((project) => {

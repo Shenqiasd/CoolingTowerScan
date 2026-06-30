@@ -1,3 +1,5 @@
+import type { ProjectHvacEvaluationResult } from './projectHvacSurveyWorkspace';
+
 export interface ProjectSolutionTechnicalAssumptions {
   baselineLoadRt: number | null;
   targetLoadRt: number | null;
@@ -133,6 +135,11 @@ export interface ProjectSolutionGateBreakdown {
   commercial: string[];
 }
 
+export interface ProjectSolutionCalculationOverride {
+  calculationSummary: ProjectSolutionCalculationSummary;
+  technicalGateErrors: string[];
+}
+
 export interface ProjectSolutionCommercialSummaryItem {
   label: string;
   value: string;
@@ -201,6 +208,37 @@ function zeroCalculationSummary(): ProjectSolutionCalculationSummary {
     efficiencyImprovementRatio: 0,
     baselineCoolingPowerKw: 0,
     targetCoolingPowerKw: 0,
+  };
+}
+
+export function buildSolutionCalculationSummaryFromHvacEvaluationResult(
+  result: ProjectHvacEvaluationResult,
+): ProjectSolutionCalculationOverride {
+  const technicalGateErrors: string[] = [];
+  if (result.yearEnergyBeforeKwh <= 0) {
+    technicalGateErrors.push('hvac evaluation baseline annual energy must be greater than 0');
+  }
+  if (result.yearEnergyAfterKwh < 0) {
+    technicalGateErrors.push('hvac evaluation target annual energy must be greater than or equal to 0');
+  }
+  if (result.yearSavingEnergyKwh <= 0) {
+    technicalGateErrors.push('hvac evaluation annual saving must be greater than 0');
+  }
+  if (result.yearEnergyAfterKwh >= result.yearEnergyBeforeKwh) {
+    technicalGateErrors.push('hvac evaluation target annual energy must be lower than baseline annual energy');
+  }
+
+  return {
+    calculationSummary: {
+      baselineAnnualEnergyKwh: result.yearEnergyBeforeKwh,
+      targetAnnualEnergyKwh: result.yearEnergyAfterKwh,
+      annualPowerSavingKwh: result.yearSavingEnergyKwh,
+      annualCostSavingCny: result.yearSavingCostCny,
+      efficiencyImprovementRatio: result.yearSavingRate,
+      baselineCoolingPowerKw: 0,
+      targetCoolingPowerKw: 0,
+    },
+    technicalGateErrors,
   };
 }
 
@@ -354,6 +392,10 @@ export function formatSolutionGateError(error: string) {
     'epc.deliveryMonths must be greater than 0': 'EPC 交付周期需大于 0',
     'emc.sharedSavingRate must be greater than 0': 'EMC 收益分成比例需大于 0',
     'emc.contractYears must be greater than 0': 'EMC 合同年限需大于 0',
+    'hvac evaluation baseline annual energy must be greater than 0': '暖通测算基线年耗电需大于 0',
+    'hvac evaluation target annual energy must be greater than or equal to 0': '暖通测算优化后年耗电不能小于 0',
+    'hvac evaluation annual saving must be greater than 0': '暖通测算年节电量需大于 0',
+    'hvac evaluation target annual energy must be lower than baseline annual energy': '暖通测算优化后年耗电必须低于基线年耗电',
   };
 
   return labelMap[error] ?? error;
@@ -449,45 +491,43 @@ export function buildCommercialSummaryItems(
 
 export function evaluateSolutionWorkspacePayload(
   payload: ProjectSolutionWorkspacePayload,
+  calculationOverride?: ProjectSolutionCalculationOverride | null,
 ): Pick<ProjectSolutionWorkspace, 'calculationSummary' | 'gateValidation'> {
   const assumptions = payload.technicalAssumptions;
-  const normalized = {
-    baselineLoadRt: normalizeAssumption(assumptions.baselineLoadRt),
-    targetLoadRt: normalizeAssumption(assumptions.targetLoadRt),
-    operatingHoursPerYear: normalizeAssumption(assumptions.operatingHoursPerYear),
-    electricityPricePerKwh: normalizeAssumption(assumptions.electricityPricePerKwh),
-    baselineCop: normalizeAssumption(assumptions.baselineCop),
-    targetCop: normalizeAssumption(assumptions.targetCop),
-    systemLossFactor: normalizeAssumption(assumptions.systemLossFactor),
-  };
   const errors: string[] = [];
 
-  if (normalized.baselineLoadRt <= 0) {
-    errors.push('baselineLoadRt must be greater than 0');
-  }
-  if (normalized.targetLoadRt <= 0) {
-    errors.push('targetLoadRt must be greater than 0');
-  }
-  if (normalized.operatingHoursPerYear <= 0) {
-    errors.push('operatingHoursPerYear must be greater than 0');
-  }
-  if (normalized.electricityPricePerKwh <= 0) {
-    errors.push('electricityPricePerKwh must be greater than 0');
-  }
-  if (normalized.baselineCop <= 0) {
-    errors.push('baselineCop must be greater than 0');
-  }
-  if (normalized.targetCop <= 0) {
-    errors.push('targetCop must be greater than 0');
-  }
-  if (normalized.systemLossFactor <= 0) {
-    errors.push('systemLossFactor must be greater than 0');
-  }
-  if (normalized.targetLoadRt > normalized.baselineLoadRt) {
-    errors.push('targetLoadRt must be less than or equal to baselineLoadRt');
-  }
-  if (normalized.targetCop <= normalized.baselineCop) {
-    errors.push('targetCop must be greater than baselineCop');
+  let normalized: ReturnType<typeof normalizeSolutionAssumptionsForPreview> | null = null;
+  if (calculationOverride) {
+    errors.push(...calculationOverride.technicalGateErrors);
+  } else {
+    normalized = normalizeSolutionAssumptionsForPreview(assumptions);
+    if (normalized.baselineLoadRt <= 0) {
+      errors.push('baselineLoadRt must be greater than 0');
+    }
+    if (normalized.targetLoadRt <= 0) {
+      errors.push('targetLoadRt must be greater than 0');
+    }
+    if (normalized.operatingHoursPerYear <= 0) {
+      errors.push('operatingHoursPerYear must be greater than 0');
+    }
+    if (normalized.electricityPricePerKwh <= 0) {
+      errors.push('electricityPricePerKwh must be greater than 0');
+    }
+    if (normalized.baselineCop <= 0) {
+      errors.push('baselineCop must be greater than 0');
+    }
+    if (normalized.targetCop <= 0) {
+      errors.push('targetCop must be greater than 0');
+    }
+    if (normalized.systemLossFactor <= 0) {
+      errors.push('systemLossFactor must be greater than 0');
+    }
+    if (normalized.targetLoadRt > normalized.baselineLoadRt) {
+      errors.push('targetLoadRt must be less than or equal to baselineLoadRt');
+    }
+    if (normalized.targetCop <= normalized.baselineCop) {
+      errors.push('targetCop must be greater than baselineCop');
+    }
   }
 
   const branching = payload.commercialBranching;
@@ -516,12 +556,32 @@ export function evaluateSolutionWorkspacePayload(
     errors.push('commercial freezeReady must be confirmed');
   }
 
+  if (calculationOverride) {
+    return {
+      calculationSummary: calculationOverride.calculationSummary,
+      gateValidation: {
+        canSnapshot: errors.length === 0,
+        errors,
+      },
+    };
+  }
+
   if (errors.length > 0) {
     return {
       calculationSummary: zeroCalculationSummary(),
       gateValidation: {
         canSnapshot: false,
         errors,
+      },
+    };
+  }
+
+  if (!normalized) {
+    return {
+      calculationSummary: zeroCalculationSummary(),
+      gateValidation: {
+        canSnapshot: false,
+        errors: ['solution calculation assumptions are required'],
       },
     };
   }
@@ -560,5 +620,19 @@ export function evaluateSolutionWorkspacePayload(
       canSnapshot: true,
       errors: [],
     },
+  };
+}
+
+function normalizeSolutionAssumptionsForPreview(
+  assumptions: ProjectSolutionTechnicalAssumptions,
+) {
+  return {
+    baselineLoadRt: normalizeAssumption(assumptions.baselineLoadRt),
+    targetLoadRt: normalizeAssumption(assumptions.targetLoadRt),
+    operatingHoursPerYear: normalizeAssumption(assumptions.operatingHoursPerYear),
+    electricityPricePerKwh: normalizeAssumption(assumptions.electricityPricePerKwh),
+    baselineCop: normalizeAssumption(assumptions.baselineCop),
+    targetCop: normalizeAssumption(assumptions.targetCop),
+    systemLossFactor: normalizeAssumption(assumptions.systemLossFactor),
   };
 }

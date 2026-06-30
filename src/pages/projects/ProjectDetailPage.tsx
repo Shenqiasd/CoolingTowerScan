@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -14,7 +14,7 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import {
   completeProjectSurvey,
@@ -22,6 +22,7 @@ import {
   createProjectSolutionSnapshot,
   getProjectAudit,
   getProjectDetail,
+  getProjectHvacSurveyWorkspace,
   getProjectSolutionWorkspace,
   getProjectSurveyWorkspace,
   listProjectSolutionSnapshots,
@@ -43,6 +44,7 @@ import {
 import { SOP_PHASE_LABELS, type SopPhase } from '../../types/project';
 import {
   buildCommercialSummaryItems,
+  buildSolutionCalculationSummaryFromHvacEvaluationResult,
   createDefaultSolutionWorkspace,
   createSolutionWorkspaceDraft,
   evaluateSolutionWorkspacePayload,
@@ -68,6 +70,12 @@ import {
   type ProjectSurveyWorkspaceDraft,
   type SurveyRecordDraft,
 } from '../../utils/projectSurveyWorkspace';
+import { HvacSurveyPanel, type HvacTab } from './HvacSurveyPanel';
+import {
+  createDefaultHvacSurveyWorkspace,
+  HVAC_SAVING_MODE_LABELS,
+  type ProjectHvacSurveyWorkspace,
+} from '../../utils/projectHvacSurveyWorkspace';
 import { supabase } from '../../lib/supabase';
 
 const STAGE_STATUS_LABELS: Record<ProjectStageStatus, string> = {
@@ -104,6 +112,26 @@ const SOLUTION_FREEZE_STATUS_LABELS = {
   approved: '已批准',
   rejected: '已驳回',
 } as const;
+
+const HVAC_TABS = [
+  'overview',
+  'stations',
+  'files',
+  'review',
+  'assets',
+  'modeling',
+  'evaluation',
+  'handoff',
+] as const satisfies HvacTab[];
+
+function getRequestedHvacTab(search: string): HvacTab {
+  const value = new URLSearchParams(search).get('surveyTab');
+  return HVAC_TABS.includes(value as HvacTab) ? value as HvacTab : 'overview';
+}
+
+function getRequestedSection(search: string) {
+  return new URLSearchParams(search).get('section');
+}
 
 interface ProjectDraft {
   name: string;
@@ -217,13 +245,19 @@ function getSolutionSectionTone(isReady: boolean) {
 
 export default function ProjectDetailPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { projectId = '' } = useParams();
+  const requestedHvacTab = useMemo(() => getRequestedHvacTab(location.search), [location.search]);
+  const requestedSection = useMemo(() => getRequestedSection(location.search), [location.search]);
+  const surveySectionRef = useRef<HTMLElement | null>(null);
+  const solutionSectionRef = useRef<HTMLElement | null>(null);
   const [item, setItem] = useState<ProjectDetailData | null>(null);
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null);
   const [stageDrafts, setStageDrafts] = useState<Record<SopPhase, StageDraft>>({} as Record<SopPhase, StageDraft>);
   const [auditLogs, setAuditLogs] = useState<ProjectAuditItem[]>([]);
   const [surveyWorkspace, setSurveyWorkspace] = useState<ProjectSurveyWorkspace | null>(null);
   const [surveyDraft, setSurveyDraft] = useState<ProjectSurveyWorkspaceDraft | null>(null);
+  const [hvacSurveyWorkspace, setHvacSurveyWorkspace] = useState<ProjectHvacSurveyWorkspace | null>(null);
   const [solutionWorkspace, setSolutionWorkspace] = useState<ProjectSolutionWorkspace | null>(null);
   const [solutionDraft, setSolutionDraft] = useState<ProjectSolutionWorkspaceDraft | null>(null);
   const [solutionSnapshots, setSolutionSnapshots] = useState<ProjectSolutionSnapshot[]>([]);
@@ -232,6 +266,7 @@ export default function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [surveyError, setSurveyError] = useState<string | null>(null);
+  const [hvacSurveyError, setHvacSurveyError] = useState<string | null>(null);
   const [solutionError, setSolutionError] = useState<string | null>(null);
   const [savingProject, setSavingProject] = useState(false);
   const [savingStages, setSavingStages] = useState<Record<string, boolean>>({});
@@ -255,16 +290,30 @@ export default function ProjectDetailPage() {
     setNotice(null);
     setAuditError(null);
     setSurveyError(null);
+    setHvacSurveyError(null);
     setSolutionError(null);
 
     try {
-      const [detail, audit, workspaceResult, solutionWorkspaceResult, snapshotsResult] = await Promise.all([
+      const [
+        detail,
+        audit,
+        workspaceResult,
+        hvacWorkspaceResult,
+        solutionWorkspaceResult,
+        snapshotsResult,
+      ] = await Promise.all([
         getProjectDetail(projectId),
         getProjectAudit(projectId).catch((nextError) => {
           setAuditError(getErrorMessage(nextError));
           return [];
         }),
         getProjectSurveyWorkspace(projectId)
+          .then((workspace) => ({ workspace, error: null as string | null }))
+          .catch((nextError) => ({
+            workspace: null,
+            error: getErrorMessage(nextError),
+          })),
+        getProjectHvacSurveyWorkspace(projectId)
           .then((workspace) => ({ workspace, error: null as string | null }))
           .catch((nextError) => ({
             workspace: null,
@@ -296,6 +345,12 @@ export default function ProjectDetailPage() {
         setSurveyDraft(createSurveyWorkspaceDraft(createDefaultSurveyWorkspace(projectId)));
         setSurveyError(workspaceResult.error);
       }
+      if (hvacWorkspaceResult.workspace) {
+        setHvacSurveyWorkspace(hvacWorkspaceResult.workspace);
+      } else {
+        setHvacSurveyWorkspace(createDefaultHvacSurveyWorkspace(projectId));
+        setHvacSurveyError(hvacWorkspaceResult.error);
+      }
       if (solutionWorkspaceResult.workspace) {
         setSolutionWorkspace(solutionWorkspaceResult.workspace);
         setSolutionDraft(createSolutionWorkspaceDraft(solutionWorkspaceResult.workspace));
@@ -314,6 +369,7 @@ export default function ProjectDetailPage() {
       setStageDrafts({} as Record<SopPhase, StageDraft>);
       setSurveyWorkspace(null);
       setSurveyDraft(null);
+      setHvacSurveyWorkspace(null);
       setSolutionWorkspace(null);
       setSolutionDraft(null);
       setSolutionSnapshots([]);
@@ -326,6 +382,23 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     void loadProject();
   }, [loadProject]);
+
+  useEffect(() => {
+    const hasSurveyTarget = new URLSearchParams(location.search).has('surveyTab');
+    const target = requestedSection === 'solution'
+      ? solutionSectionRef.current
+      : hasSurveyTarget
+        ? surveySectionRef.current
+        : null;
+
+    if (!target) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      target.scrollIntoView({ block: 'start' });
+    });
+  }, [item?.id, location.search, requestedSection]);
 
   useEffect(() => {
     let mounted = true;
@@ -538,7 +611,7 @@ export default function ProjectDetailPage() {
       );
       setSurveyWorkspace(updated);
       setSurveyDraft(createSurveyWorkspaceDraft(updated));
-      setNotice('Survey Workspace 已保存');
+      setNotice('探勘调研已保存');
       setAuditLogs(await getProjectAudit(projectId).catch(() => auditLogs));
     } catch (nextError) {
       setSurveyError(getErrorMessage(nextError));
@@ -561,7 +634,7 @@ export default function ProjectDetailPage() {
       setSurveyWorkspace(completed);
       setSurveyDraft(createSurveyWorkspaceDraft(completed));
       await loadProject();
-      setNotice('Survey 阶段已完成');
+      setNotice('探勘调研阶段已完成');
     } catch (nextError) {
       setSurveyError(getErrorMessage(nextError));
     } finally {
@@ -737,12 +810,27 @@ export default function ProjectDetailPage() {
   }, [loadProject, projectId]);
 
   const defaultSolutionWorkspace = createDefaultSolutionWorkspace(projectId);
+  const surveyGateValidation = surveyWorkspace?.gateValidation ?? {
+    canComplete: false,
+    errors: surveyError
+      ? [`基础探勘调研不可用：${surveyError}`]
+      : ['基础探勘调研尚未加载，无法完成阶段。'],
+  };
+  const canCompleteSurvey = Boolean(
+    hvacSurveyWorkspace?.gateValidation.canComplete,
+  );
+  const hvacSolutionCalculation = hvacSurveyWorkspace?.latestEvaluation
+    ? buildSolutionCalculationSummaryFromHvacEvaluationResult(hvacSurveyWorkspace.latestEvaluation.result)
+    : null;
   const serializedSolutionDraft = solutionDraft
     ? serializeSolutionWorkspaceDraft(solutionDraft)
     : null;
   const solutionPreview = serializedSolutionDraft
-    ? evaluateSolutionWorkspacePayload(serializedSolutionDraft)
+    ? evaluateSolutionWorkspacePayload(serializedSolutionDraft, hvacSolutionCalculation)
     : null;
+  const calculationSourceLabel = hvacSurveyWorkspace?.latestEvaluation
+    ? `暖通测算 · ${HVAC_SAVING_MODE_LABELS[hvacSurveyWorkspace.latestEvaluation.savingMode]} · ${hvacSurveyWorkspace.latestEvaluation.year}`
+    : '方案假设快算';
   const activeCalculationSummary = solutionPreview?.calculationSummary ?? solutionWorkspace?.calculationSummary ?? defaultSolutionWorkspace.calculationSummary;
   const activeGateValidation = solutionPreview?.gateValidation ?? solutionWorkspace?.gateValidation ?? defaultSolutionWorkspace.gateValidation;
   const activeCommercialBranching = solutionDraft
@@ -1035,11 +1123,11 @@ export default function ProjectDetailPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <section ref={surveySectionRef} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-medium text-white">Survey Workspace</h3>
-                <p className="mt-1 text-xs text-slate-500">结构化维护信息采集、调研记录、台账、缺口和交接。</p>
+                <h3 className="text-sm font-medium text-white">探勘调研</h3>
+                <p className="mt-1 text-xs text-slate-500">结构化维护现场信息、四川空调数据应用、设备台账、运行建模、节能测算、缺口和交接。</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {surveyWorkspace && (
@@ -1054,26 +1142,32 @@ export default function ProjectDetailPage() {
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-200 transition-colors hover:border-cyan-500/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {savingSurvey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                  保存 Survey
+                  保存调研
                 </button>
                 <button
                   onClick={() => void handleCompleteSurvey()}
-                  disabled={completingSurvey || !surveyDraft}
+                  disabled={completingSurvey || !surveyDraft || !canCompleteSurvey}
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-900/40"
                 >
                   {completingSurvey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
-                  完成 Survey
+                  完成调研
                 </button>
               </div>
             </div>
 
             {surveyError ? (
               <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-200">
-                Survey Workspace 不可用：{surveyError}
+                基础探勘调研不可用：{surveyError}
               </div>
             ) : null}
 
-            {surveyDraft && surveyWorkspace ? (
+            {hvacSurveyError ? (
+              <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-200">
+                暖通探勘工作台不可用：{hvacSurveyError}
+              </div>
+            ) : null}
+
+            {surveyDraft || hvacSurveyWorkspace ? (
               <div className="space-y-5">
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
                   <div className="flex items-center gap-2">
@@ -1081,14 +1175,14 @@ export default function ProjectDetailPage() {
                     <h4 className="text-sm font-medium text-white">完成校验</h4>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                    <span className={`rounded-full px-2.5 py-1 ${surveyWorkspace.gateValidation.canComplete ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
-                      {surveyWorkspace.gateValidation.canComplete ? '可完成' : '未满足完成条件'}
+                    <span className={`rounded-full px-2.5 py-1 ${surveyGateValidation.canComplete ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                      {surveyGateValidation.canComplete ? '可完成' : '未满足完成条件'}
                     </span>
-                    <span className="text-slate-500">错误数 {surveyWorkspace.gateValidation.errors.length}</span>
+                    <span className="text-slate-500">错误数 {surveyGateValidation.errors.length}</span>
                   </div>
-                  {surveyWorkspace.gateValidation.errors.length > 0 ? (
+                  {surveyGateValidation.errors.length > 0 ? (
                     <ul className="mt-3 space-y-2 text-xs text-amber-200">
-                      {surveyWorkspace.gateValidation.errors.map((item) => (
+                      {surveyGateValidation.errors.map((item) => (
                         <li key={item} className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">
                           {item}
                         </li>
@@ -1097,6 +1191,20 @@ export default function ProjectDetailPage() {
                   ) : null}
                 </div>
 
+                {hvacSurveyWorkspace ? (
+                  <HvacSurveyPanel
+                    projectId={projectId}
+                    workspace={hvacSurveyWorkspace}
+                    initialTab={requestedHvacTab}
+                    onWorkspaceChange={setHvacSurveyWorkspace}
+                    onAuditRefresh={async () => {
+                      setAuditLogs(await getProjectAudit(projectId).catch(() => auditLogs));
+                    }}
+                  />
+                ) : null}
+
+                {surveyDraft ? (
+                  <>
                 <div className="grid gap-4 xl:grid-cols-2">
                   <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
                     <h4 className="text-sm font-medium text-white">信息采集</h4>
@@ -1266,11 +1374,17 @@ export default function ProjectDetailPage() {
                     </div>
                   ))}
                 </SurveyCollectionSection>
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+                    基础探勘表单暂未加载，但暖通探勘子模块会独立显示。请稍后重试保存基础调研信息。
+                  </div>
+                )}
               </div>
             ) : null}
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <section ref={solutionSectionRef} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-medium text-white">Solution Center</h3>
@@ -1565,10 +1679,10 @@ export default function ProjectDetailPage() {
                 </fieldset>
 
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <MetricCard title="基线年耗电" value={`${activeCalculationSummary.baselineAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} />
-                  <MetricCard title="目标年耗电" value={`${activeCalculationSummary.targetAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} />
-                  <MetricCard title="年节电量" value={`${activeCalculationSummary.annualPowerSavingKwh.toLocaleString('zh-CN')} kWh`} />
-                  <MetricCard title="年节约电费" value={`${activeCalculationSummary.annualCostSavingCny.toLocaleString('zh-CN')} 元`} />
+                  <MetricCard title="基线年耗电" value={`${activeCalculationSummary.baselineAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} hint={calculationSourceLabel} />
+                  <MetricCard title="目标年耗电" value={`${activeCalculationSummary.targetAnnualEnergyKwh.toLocaleString('zh-CN')} kWh`} hint={calculationSourceLabel} />
+                  <MetricCard title="年节电量" value={`${activeCalculationSummary.annualPowerSavingKwh.toLocaleString('zh-CN')} kWh`} hint={calculationSourceLabel} />
+                  <MetricCard title="年节约电费" value={`${activeCalculationSummary.annualCostSavingCny.toLocaleString('zh-CN')} 元`} hint={calculationSourceLabel} />
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">

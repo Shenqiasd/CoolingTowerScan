@@ -5,8 +5,8 @@ import {
   Upload, Download, Database, FileBarChart,
   LayoutDashboard, ChevronDown,
 } from 'lucide-react';
-import type { SopPhase } from '../types/project';
-import { SOP_PHASES, SOP_PHASE_LABELS } from '../types/project';
+import type { SopPhase, SurveyWorkflowView } from '../types/project';
+import { SOP_PHASES, SOP_PHASE_LABELS, SURVEY_WORKFLOW_LABELS, SURVEY_WORKFLOW_VIEWS } from '../types/project';
 import type { PipelineStep, ScanSession } from '../types/pipeline';
 import type { StatsData } from '../types/enterprise';
 
@@ -16,6 +16,10 @@ export type SidebarView = 'dashboard' | PipelineStep | QualificationView;
 interface Props {
   activeView: SidebarView;
   onViewChange: (view: SidebarView) => void;
+  activeProjectPhase: SopPhase | '';
+  onProjectPhaseSelect: (phase: SopPhase) => void;
+  activeSurveyWorkflow: SurveyWorkflowView | null;
+  onSurveyWorkflowSelect: (view: SurveyWorkflowView) => void;
   activeStep: PipelineStep;
   onStepChange: (step: PipelineStep) => void;
   session: ScanSession;
@@ -72,6 +76,10 @@ const QUALIFICATION_LABELS: Record<QualificationView, string> = {
 export default function LifecycleSidebar({
   activeView,
   onViewChange,
+  activeProjectPhase,
+  onProjectPhaseSelect,
+  activeSurveyWorkflow,
+  onSurveyWorkflowSelect,
   activeStep,
   onStepChange,
   session,
@@ -92,17 +100,17 @@ export default function LifecycleSidebar({
 
   useEffect(() => {
     if (activeView === 'dashboard') {
-      setExpandedPhase(null);
+      setExpandedPhase(activeSurveyWorkflow ? 'survey' : activeProjectPhase || null);
       return;
     }
 
     setExpandedPhase(activeView === 'candidates' || activeView === 'leads' ? 'qualification' : 'prospecting');
-  }, [activeView]);
+  }, [activeProjectPhase, activeSurveyWorkflow, activeView]);
 
   const isDashboard = activeView === 'dashboard';
   // activePhase: which phase is currently active (based on active sub-step)
   const activePhase = isDashboard
-    ? null
+    ? activeSurveyWorkflow ? 'survey' : activeProjectPhase || null
     : activeView === 'candidates' || activeView === 'leads'
       ? 'qualification'
       : STEP_TO_PHASE[activeStep];
@@ -120,7 +128,7 @@ export default function LifecycleSidebar({
         <button
           onClick={() => onViewChange('dashboard')}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all ${
-            isDashboard
+            isDashboard && !activeProjectPhase && !activeSurveyWorkflow
               ? 'bg-white/10 border border-white/20 text-white'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent'
           }`}
@@ -144,16 +152,24 @@ export default function LifecycleSidebar({
           const isActive = activePhase === phase;
           const isExpanded = expandedPhase === phase;
           const count = projectCounts[phase] || 0;
-          const hasSubSteps = phase === 'prospecting' || phase === 'qualification';
+          const hasSubSteps = phase === 'prospecting' || phase === 'qualification' || phase === 'survey';
 
           return (
             <div key={phase}>
               <button
                 onClick={() => {
+                  if (phase === 'survey') {
+                    onSurveyWorkflowSelect(activeSurveyWorkflow ?? 'overview');
+                    setExpandedPhase(isExpanded ? null : phase);
+                    return;
+                  }
+
                   if (hasSubSteps) {
                     setExpandedPhase(isExpanded ? null : phase);
+                    return;
                   }
-                  // other phases: no-op for now
+
+                  onProjectPhaseSelect(phase);
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all group ${
                   isActive
@@ -218,6 +234,22 @@ export default function LifecycleSidebar({
                       >
                         {QUALIFICATION_LABELS[view]}
                       </button>
+                    );
+                  })}
+                  {phase === 'survey' && SURVEY_WORKFLOW_VIEWS.map((module) => {
+                    const isSurveyModuleActive = activeSurveyWorkflow === module;
+                    return (
+                    <button
+                      key={module}
+                      onClick={() => onSurveyWorkflowSelect(module)}
+                      className={`w-full text-left px-3 py-1.5 rounded text-[11px] transition-colors ${
+                        isSurveyModuleActive
+                          ? 'text-emerald-400 bg-emerald-600/10'
+                          : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40'
+                      }`}
+                    >
+                      {SURVEY_WORKFLOW_LABELS[module]}
+                    </button>
                     );
                   })}
                 </div>
