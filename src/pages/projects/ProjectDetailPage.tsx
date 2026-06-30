@@ -918,7 +918,7 @@ export default function ProjectDetailPage() {
             </div>
           </section>
 
-          <section ref={surveySectionRef} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-medium text-white">项目主信息</h3>
@@ -1124,7 +1124,7 @@ export default function ProjectDetailPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <section ref={surveySectionRef} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-medium text-white">探勘调研</h3>
