@@ -1,14 +1,9 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
-import { warmImageSource } from '../utils/reviewImage';
 
 interface LightboxImage {
   url: string;
   label: string;
-  previewUrl?: string;
-  lightboxUrl?: string;
-  previewCandidates?: string[];
-  lightboxCandidates?: string[];
 }
 
 interface ImageLightboxProps {
@@ -22,60 +17,9 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
-  const [lightboxSourceIndexes, setLightboxSourceIndexes] = useState<Record<string, number>>({});
-  const [thumbnailSourceIndexes, setThumbnailSourceIndexes] = useState<Record<string, number>>({});
   const dragStart = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
 
   const current = images[index];
-
-  useEffect(() => {
-    setLightboxSourceIndexes({});
-    setThumbnailSourceIndexes({});
-  }, [images, initialIndex]);
-
-  const getLightboxSrc = useCallback((image?: LightboxImage) => {
-    if (!image) return '';
-    const candidates = image.lightboxCandidates?.length ? image.lightboxCandidates : [image.lightboxUrl || image.url];
-    const sourceIndex = lightboxSourceIndexes[image.url] ?? 0;
-    return candidates[Math.min(sourceIndex, candidates.length - 1)] || image.url;
-  }, [lightboxSourceIndexes]);
-
-  const getThumbnailSrc = useCallback((image?: LightboxImage) => {
-    if (!image) return '';
-    const candidates = image.previewCandidates?.length ? image.previewCandidates : [image.previewUrl || image.url];
-    const sourceIndex = thumbnailSourceIndexes[image.url] ?? 0;
-    return candidates[Math.min(sourceIndex, candidates.length - 1)] || image.url;
-  }, [thumbnailSourceIndexes]);
-
-  const advanceLightboxSrc = useCallback((image?: LightboxImage) => {
-    if (!image) return;
-    const candidates = image.lightboxCandidates?.length ? image.lightboxCandidates : [image.lightboxUrl || image.url];
-    setLightboxSourceIndexes((prev) => {
-      const currentIndex = prev[image.url] ?? 0;
-      if (currentIndex >= candidates.length - 1) {
-        return prev;
-      }
-      return {
-        ...prev,
-        [image.url]: currentIndex + 1,
-      };
-    });
-  }, []);
-
-  const advanceThumbnailSrc = useCallback((image?: LightboxImage) => {
-    if (!image) return;
-    const candidates = image.previewCandidates?.length ? image.previewCandidates : [image.previewUrl || image.url];
-    setThumbnailSourceIndexes((prev) => {
-      const currentIndex = prev[image.url] ?? 0;
-      if (currentIndex >= candidates.length - 1) {
-        return prev;
-      }
-      return {
-        ...prev,
-        [image.url]: currentIndex + 1,
-      };
-    });
-  }, []);
 
   const resetTransform = useCallback(() => {
     setScale(1);
@@ -116,13 +60,6 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, prev, next, resetTransform, images.length]);
-
-  useEffect(() => {
-    warmImageSource(current?.lightboxCandidates?.[0] || current?.lightboxUrl || current?.url);
-    if (images.length <= 1) return;
-    warmImageSource(images[(index + 1) % images.length]?.lightboxCandidates?.[0] || images[(index + 1) % images.length]?.lightboxUrl || images[(index + 1) % images.length]?.url);
-    warmImageSource(images[(index - 1 + images.length) % images.length]?.lightboxCandidates?.[0] || images[(index - 1 + images.length) % images.length]?.lightboxUrl || images[(index - 1 + images.length) % images.length]?.url);
-  }, [current?.url, images, index]);
 
   function onWheel(e: React.WheelEvent) {
     e.preventDefault();
@@ -223,13 +160,10 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
         style={{ cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'default' }}
       >
         <img
-          src={getLightboxSrc(current)}
+          src={current.url}
           alt={current.label}
           draggable={false}
           className="max-w-full max-h-full object-contain transition-transform duration-100"
-          decoding="async"
-          loading="eager"
-          onError={() => advanceLightboxSrc(current)}
           style={{
             transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)`,
           }}
@@ -267,12 +201,9 @@ export default function ImageLightbox({ images, initialIndex = 0, onClose }: Ima
                 ${i === index ? 'border-cyan-400 opacity-100' : 'border-white/10 opacity-50 hover:opacity-75'}`}
             >
               <img
-                src={getThumbnailSrc(img)}
+                src={img.url}
                 alt={img.label}
                 className="w-full h-full object-cover"
-                loading="lazy"
-                decoding="async"
-                onError={() => advanceThumbnailSrc(img)}
               />
             </button>
           ))}

@@ -1,10 +1,7 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, Upload, Loader2, Image as ImageIcon, ThermometerSun, Building2, Gauge, Cpu, PlugZap, Save, Radar, Target, Maximize2, MapPin, Tag, Star, BarChart3, GitBranch } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { X, Upload, Loader2, Image as ImageIcon, ThermometerSun, Building2, Gauge, Cpu, PlugZap, Save, Radar, Target, Maximize2, MapPin, Tag, Star, BarChart3 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { calculateHVAC } from '../utils/hvacCalculator';
-import { buildEnterpriseImageAsset } from '../utils/enterpriseImage';
-import { buildEnterpriseProvenance, type EnterpriseCandidateProvenance } from '../utils/enterpriseProvenance';
-import { warmImageSource } from '../utils/reviewImage';
 import type { Enterprise, DetectionResult } from '../types/enterprise';
 import ImageLightbox from './ImageLightbox';
 
@@ -34,8 +31,6 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
   const [towerCount, setTowerCount] = useState(enterprise.cooling_tower_count);
   const [saving, setSaving] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const [previewSourceIndexes, setPreviewSourceIndexes] = useState<Record<string, number>>({});
-  const [provenanceCandidate, setProvenanceCandidate] = useState<EnterpriseCandidateProvenance | null>(null);
   const originalRef = useRef<HTMLInputElement>(null);
   const annotatedRef = useRef<HTMLInputElement>(null);
 
@@ -47,89 +42,10 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  const satelliteImages = [
-    enterprise.original_image_url
-      ? { ...buildEnterpriseImageAsset(enterprise.original_image_url), url: enterprise.original_image_url, label: '原始卫星图' }
-      : null,
-    enterprise.annotated_image_url
-      ? { ...buildEnterpriseImageAsset(enterprise.annotated_image_url), url: enterprise.annotated_image_url, label: '识别标注图' }
-      : null,
-  ].filter(Boolean) as {
-    fullUrl: string;
-    url: string;
-    label: string;
-    previewUrl: string;
-    lightboxUrl: string;
-    previewCandidates: string[];
-    lightboxCandidates: string[];
-  }[];
-
-  useEffect(() => {
-    setPreviewSourceIndexes({});
-  }, [enterprise.id, enterprise.original_image_url, enterprise.annotated_image_url]);
-
-  useEffect(() => {
-    let disposed = false;
-
-    async function fetchCandidateProvenance() {
-      const { data, error } = await supabase
-        .from('scan_candidates')
-        .select('id, candidate_code, scan_session_id, source_label, source_payload, created_at')
-        .eq('enterprise_id', enterprise.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (disposed) {
-        return;
-      }
-
-      if (error) {
-        console.error('Fetch candidate provenance error:', error);
-        setProvenanceCandidate(null);
-        return;
-      }
-
-      setProvenanceCandidate(data ?? null);
-    }
-
-    void fetchCandidateProvenance();
-
-    return () => {
-      disposed = true;
-    };
-  }, [enterprise.id]);
-
-  const provenance = useMemo(() => buildEnterpriseProvenance({
-    enterprise,
-    candidate: provenanceCandidate,
-    detectionResults,
-  }), [enterprise, provenanceCandidate, detectionResults]);
-
-  const getPreviewSrc = (image?: typeof satelliteImages[number]) => {
-    if (!image) return '';
-    const index = previewSourceIndexes[image.fullUrl] ?? 0;
-    return image.previewCandidates[Math.min(index, image.previewCandidates.length - 1)] || image.fullUrl;
-  };
-
-  const advancePreviewSrc = (image?: typeof satelliteImages[number]) => {
-    if (!image) return;
-    setPreviewSourceIndexes((prev) => {
-      const currentIndex = prev[image.fullUrl] ?? 0;
-      if (currentIndex >= image.previewCandidates.length - 1) {
-        return prev;
-      }
-      return {
-        ...prev,
-        [image.fullUrl]: currentIndex + 1,
-      };
-    });
-  };
-
-  const openLightbox = (index: number) => {
-    warmImageSource(satelliteImages[index]?.lightboxUrl);
-    setLightboxIndex(index);
-  };
+  const lightboxImages = [
+    enterprise.original_image_url ? { url: enterprise.original_image_url, label: '原始卫星图' } : null,
+    enterprise.annotated_image_url ? { url: enterprise.annotated_image_url, label: '识别标注图' } : null,
+  ].filter(Boolean) as { url: string; label: string }[];
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>, type: 'original' | 'annotated') {
     const file = e.target.files?.[0];
@@ -164,16 +80,11 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
 
   async function handleSaveDetection() {
     setSaving(true);
-    const hvac = calculateHVAC(towerCount, enterprise.industry_category, {
-      detectedTowerTotalAreaM2: enterprise.detected_tower_total_area_m2,
-      detectedTowerAvgAreaM2: enterprise.detected_tower_avg_area_m2,
-      detectedTowerMaxAreaM2: enterprise.detected_tower_max_area_m2,
-      method: 'manual-count',
-    });
+    const hvac = calculateHVAC(towerCount, enterprise.industry_category);
     await onUpdate(enterprise.id, {
       cooling_tower_count: towerCount,
       has_cooling_tower: towerCount > 0,
-      detection_status: towerCount > 0 ? 'detected' : 'no_result',
+      detection_status: 'detected',
       detection_confidence: 1,
       ...hvac,
     });
@@ -278,24 +189,15 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                   <div className="space-y-1.5">
                     <p className="text-[11px] text-slate-500">原始卫星图</p>
                     {enterprise.original_image_url ? (
-                      (() => {
-                        const image = satelliteImages.find((entry) => entry.fullUrl === enterprise.original_image_url);
-                        return (
                       <div
                         className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
                           border border-slate-700/40 hover:border-cyan-500/50 transition-all"
-                        onMouseEnter={() => warmImageSource(getPreviewSrc(image))}
-                        onFocus={() => warmImageSource(getPreviewSrc(image))}
-                        onPointerDown={() => warmImageSource(image?.lightboxCandidates[0] || image?.fullUrl)}
-                        onClick={() => openLightbox(0)}
+                        onClick={() => setLightboxIndex(0)}
                       >
                         <img
-                          src={getPreviewSrc(image)}
+                          src={enterprise.original_image_url}
                           alt="原始图"
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          loading="lazy"
-                          decoding="async"
-                          onError={() => advancePreviewSrc(image)}
                         />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
                           flex items-center justify-center">
@@ -303,8 +205,6 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                             transition-opacity drop-shadow-lg" />
                         </div>
                       </div>
-                        );
-                      })()
                     ) : (
                       <button
                         onClick={() => originalRef.current?.click()}
@@ -329,27 +229,18 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                   <div className="space-y-1.5">
                     <p className="text-[11px] text-slate-500">识别标注图</p>
                     {enterprise.annotated_image_url ? (
-                      (() => {
-                        const image = satelliteImages.find((entry) => entry.fullUrl === enterprise.annotated_image_url);
-                        return (
                       <div
                         className="relative group cursor-zoom-in w-full aspect-square rounded-lg overflow-hidden
                           border border-slate-700/40 hover:border-emerald-500/50 transition-all"
                         onClick={() => {
-                          const idx = satelliteImages.findIndex((image) => image.fullUrl === enterprise.annotated_image_url);
-                          openLightbox(Math.max(0, idx));
+                          const idx = enterprise.original_image_url ? 1 : 0;
+                          setLightboxIndex(idx);
                         }}
-                        onMouseEnter={() => warmImageSource(getPreviewSrc(image))}
-                        onFocus={() => warmImageSource(getPreviewSrc(image))}
-                        onPointerDown={() => warmImageSource(image?.lightboxCandidates[0] || image?.fullUrl)}
                       >
                         <img
-                          src={getPreviewSrc(image)}
+                          src={enterprise.annotated_image_url}
                           alt="标注图"
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          loading="lazy"
-                          decoding="async"
-                          onError={() => advancePreviewSrc(image)}
                         />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all
                           flex items-center justify-center">
@@ -357,8 +248,6 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                             transition-opacity drop-shadow-lg" />
                         </div>
                       </div>
-                        );
-                      })()
                     ) : (
                       <button
                         onClick={() => annotatedRef.current?.click()}
@@ -407,39 +296,6 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                   </button>
                 </div>
               </div>
-
-              <div className="bg-slate-800/50 rounded-xl border border-slate-700/40 p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <GitBranch className="w-4 h-4 text-cyan-400" />
-                  <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">来源追踪</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <p className="text-xs text-slate-500">来源模式</p>
-                    <p className="text-white">{provenance.sourceLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">图片入库时间</p>
-                    <p className="text-white">{provenance.imageUploadedAt || '-'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">扫描任务 ID</p>
-                    <p className="break-all font-mono text-xs text-slate-300">{provenance.scanSessionId || '-'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">截图 ID</p>
-                    <p className="break-all font-mono text-xs text-slate-300">{provenance.screenshotId || '-'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Candidate Code</p>
-                    <p className="break-all font-mono text-xs text-slate-300">{provenance.candidateCode || '-'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">最新检测图片</p>
-                    <p className="break-all text-xs text-slate-300">{provenance.latestDetectionImagePath || '-'}</p>
-                  </div>
-                </div>
-              </div>
             </div>
 
             <div className="space-y-5">
@@ -473,14 +329,6 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
                       }`}>
                         {(enterprise.detection_confidence * 100).toFixed(0)}%
                       </span>
-                    </div>
-                  )}
-
-                  {enterprise.detected_tower_total_area_m2 > 0 && (
-                    <div className="flex items-center gap-4 text-xs text-slate-400 bg-slate-900/30 border border-slate-700/30 rounded-lg px-3 py-2">
-                      <span>总塔面积: {enterprise.detected_tower_total_area_m2.toFixed(1)} m²</span>
-                      <span>平均塔面积: {enterprise.detected_tower_avg_area_m2.toFixed(1)} m²</span>
-                      <span>最大塔面积: {enterprise.detected_tower_max_area_m2.toFixed(1)} m²</span>
                     </div>
                   )}
 
@@ -573,9 +421,9 @@ export default function EnterpriseDetail({ enterprise, detectionResults, detecti
         </div>
       </div>
 
-      {lightboxIndex !== null && satelliteImages.length > 0 && (
+      {lightboxIndex !== null && lightboxImages.length > 0 && (
         <ImageLightbox
-          images={satelliteImages}
+          images={lightboxImages}
           initialIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
         />

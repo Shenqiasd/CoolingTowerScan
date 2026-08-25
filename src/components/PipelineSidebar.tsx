@@ -29,10 +29,7 @@ const STEPS: Array<{
     id: 'detection',
     label: 'AI 识别',
     icon: Radar,
-    getCount: (s, stats) => {
-      if (stats.pendingReviewCandidates > 0) {
-        return `${stats.pendingReviewCandidates} 个待审核`;
-      }
+    getCount: (s) => {
       const towers = s.detections.reduce((sum, d) => sum + d.count, 0);
       return towers > 0 ? `${towers} 个冷却塔` : s.detections.length > 0 ? `${s.detections.length} 张已识别` : '';
     },
@@ -41,12 +38,7 @@ const STEPS: Array<{
     id: 'results',
     label: '数据总览',
     icon: BarChart3,
-    getCount: (_, stats) => {
-      if (stats.needsBindingCandidates > 0) {
-        return `${stats.needsBindingCandidates} 个待绑定`;
-      }
-      return stats.totalEnterprises > 0 ? `${stats.totalEnterprises} 家企业` : '';
-    },
+    getCount: (_, stats) => stats.totalEnterprises > 0 ? `${stats.totalEnterprises} 家企业` : '',
   },
 ];
 

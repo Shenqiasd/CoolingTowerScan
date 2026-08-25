@@ -2,7 +2,6 @@ import { useRef } from 'react';
 import { AlertCircle, ChevronUp, ChevronDown, ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import type { Enterprise } from '../types/enterprise';
 import type { SortField, SortDirection } from '../hooks/useEnterprises';
-import { getEnterpriseSourceLabel } from '../utils/enterpriseProvenance';
 
 interface EnterpriseListProps {
   enterprises: Enterprise[];
@@ -36,8 +35,6 @@ const COLUMNS: ColumnDef[] = [
   { key: 'probability_level', label: '概率', width: 'w-[52px]', sortable: true },
   { key: 'detection_confidence', label: '置信度', width: 'w-[64px]', sortable: true },
   { key: 'cooling_tower_count', label: '冷却塔', width: 'w-[60px]', unit: '台', sortable: true },
-  { key: 'detected_tower_avg_area_m2', label: '平均塔面积', width: 'w-[90px]', unit: 'm\u00B2', sortable: true },
-  { key: 'detected_tower_max_area_m2', label: '最大塔面积', width: 'w-[90px]', unit: 'm\u00B2', sortable: true },
   { key: 'estimated_building_area', label: '建筑面积', width: 'w-[90px]', unit: 'm\u00B2', sortable: true },
   { key: 'unit_cooling_load', label: '单位冷负荷', width: 'w-[90px]', unit: 'W/m\u00B2', sortable: true },
   { key: 'peak_cooling_load', label: '峰值冷负荷', width: 'w-[90px]', unit: 'kW', sortable: true },
@@ -79,11 +76,6 @@ function getCellColor(key: string, value: unknown): string {
   if (key === 'cooling_station_rated_power_kw') {
     if (value > 300) return 'text-rose-400';
     if (value >= 150) return 'text-amber-400';
-    return 'text-slate-300';
-  }
-  if ((key === 'detected_tower_avg_area_m2' || key === 'detected_tower_max_area_m2') && value > 0) {
-    if (value >= 30) return 'text-cyan-400';
-    if (value >= 15) return 'text-emerald-400';
     return 'text-slate-300';
   }
   if (key === 'detection_confidence') {
@@ -264,11 +256,6 @@ export default function EnterpriseList({
                         enterprise.detection_status === 'no_result' ? 'text-slate-500' : 'text-white'
                       }`}>
                         {enterprise.enterprise_name}
-                      </span>
-                    </div>
-                    <div className="mt-1">
-                      <span className="inline-flex rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] text-slate-400">
-                        来源：{getEnterpriseSourceLabel(enterprise.match_dimension_details)}
                       </span>
                     </div>
                   </td>

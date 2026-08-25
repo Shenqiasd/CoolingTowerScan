@@ -1,419 +1,105 @@
-import { useState, useCallback, useRef, useEffect, type SetStateAction } from 'react';
-import { Radar, Play, Square, CheckCircle2, X, Settings2 } from 'lucide-react';
-import type { CaptureResult, ScanDetection, DetectionFilters } from '../types/pipeline';
-import { supabase } from '../lib/supabase';
+import { useState, useCallback, useRef } from 'react';
+import { Radar, Play, Square, CheckCircle2, XCircle, Loader2, Settings2 } from 'lucide-react';
+import type { ScreenshotResult } from './MapScreenshot';
+import type { ScanDetection } from '../types/pipeline';
 import { detectImage, getDetectionApiUrl, setDetectionApiUrl, checkHealth } from '../utils/detectionApi';
-import { saveDetectionResult, clearDetectionResults } from '../utils/detectionPersistence';
-import { useScreenshotFilters, DEFAULT_FILTERS } from '../hooks/useScreenshotFilters';
-import { useAnnotatedUpload } from '../hooks/useAnnotatedUpload';
-import { useEnterpriseMatch } from '../hooks/useEnterpriseMatch';
-import { buildAnnotatedUploadPlan } from '../utils/annotatedUploadPlan';
-import { buildErrorDetection, buildScanDetection } from '../utils/detectionResultMapper';
-import { patchDetection } from '../utils/detectionState';
-import { getScreenshotIdentity, isDetectionForScreenshot } from '../utils/screenshotIdentity';
-import { updateScanCandidatesByScreenshot } from '../utils/scanCandidateRepo';
-import ScreenshotGrid from './detection/ScreenshotGrid';
-import CandidateActionBar from './detection/CandidateActionBar';
-import CandidateSummaryCards from './detection/CandidateSummaryCards';
-import { buildCandidateReviewStats } from './detection/candidateReviewStats';
-import { getCandidateWorkflowState } from './detection/candidateWorkflow';
-import DetectionFilterBar from './detection/DetectionFilterBar';
-import FloatingActionBar from './detection/FloatingActionBar';
-import ReviewModal from './detection/ReviewModal';
-import EnterpriseMatchModal from './detection/EnterpriseMatchModal';
-
-const CONF_KEY = 'detection_conf_threshold';
-function loadConf(): number {
-  const v = parseFloat(localStorage.getItem(CONF_KEY) ?? '');
-  return isNaN(v) ? 0.25 : v;
-}
-
-type UploadNoticeTone = 'success' | 'warning' | 'error';
-
-function formatUploadNoticeMessage(parts: string[]): string {
-  return parts.join('，');
-}
-
-function formatBlockedUploadReasons(plan: ReturnType<typeof buildAnnotatedUploadPlan>): string {
-  const parts: string[] = [];
-
-  if (plan.missingImage.length > 0) {
-    parts.push(`${plan.missingImage.length} 张缺少原图`);
-  }
-  if (plan.missingBoxes.length > 0) {
-    parts.push(`${plan.missingBoxes.length} 张缺少检测框`);
-  }
-  if (plan.alreadyUploaded.length > 0) {
-    parts.push(`${plan.alreadyUploaded.length} 张已上传`);
-  }
-  if (plan.needsReview.length > 0) {
-    parts.push(`${plan.needsReview.length} 张待审核`);
-  }
-  if (plan.needsBinding.length > 0) {
-    parts.push(`${plan.needsBinding.length} 张待绑定企业`);
-  }
-  if (plan.noTower.length > 0) {
-    parts.push(`${plan.noTower.length} 张无冷却塔`);
-  }
-
-  return formatUploadNoticeMessage(parts);
-}
 
 interface Props {
-  screenshots: CaptureResult[];
+  screenshots: ScreenshotResult[];
   detections: ScanDetection[];
-  onDetectionsUpdate: (update: SetStateAction<ScanDetection[]>) => void;
+  onDetectionsUpdate: (detections: ScanDetection[]) => void;
   onStatusChange: (status: 'detecting' | 'complete' | 'idle') => void;
-  onDataImported?: () => void;
 }
 
-export default function DetectionPanel({
-  screenshots, detections, onDetectionsUpdate, onStatusChange, onDataImported,
-}: Props) {
+export default function DetectionPanel({ screenshots, detections, onDetectionsUpdate, onStatusChange }: Props) {
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [apiUrl, setApiUrl] = useState(getDetectionApiUrl);
   const [showSettings, setShowSettings] = useState(false);
   const [apiHealthy, setApiHealthy] = useState<boolean | null>(null);
-  const [conf, setConf] = useState<number>(loadConf);
-  const [isDetecting, setIsDetecting] = useState(false);
-  const [showBanner, setShowBanner] = useState(false);
-  const [uploadNotice, setUploadNotice] = useState<{ tone: UploadNoticeTone; message: string } | null>(null);
   const shouldStopRef = useRef(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [filters, setFilters] = useState<DetectionFilters>(DEFAULT_FILTERS);
-  const filteredDetections = useScreenshotFilters(detections, filters);
-  const selectedUploadPlan = buildAnnotatedUploadPlan(detections, selected);
-  const [reviewIndex, setReviewIndex] = useState<number | null>(null);
-  const [matchTarget, setMatchTarget] = useState<ScanDetection | null>(null);
-  const { uploadAllAnnotated } = useAnnotatedUpload();
-  const { confirm: confirmMatch } = useEnterpriseMatch();
-
-  // ── helpers ──────────────────────────────────────────────────────────────
-
-  const updateDetection = useCallback((target: ScanDetection, update: Partial<ScanDetection>) => {
-    onDetectionsUpdate((prev) => patchDetection(prev, target, update));
-  }, [onDetectionsUpdate]);
 
   const handleCheckHealth = useCallback(async () => {
-    setApiHealthy(await checkHealth(apiUrl));
+    const healthy = await checkHealth(apiUrl);
+    setApiHealthy(healthy);
   }, [apiUrl]);
 
   const handleSaveApiUrl = useCallback(() => {
-    setDetectionApiUrl(apiUrl.trim());
+    setDetectionApiUrl(apiUrl);
     setShowSettings(false);
     handleCheckHealth();
   }, [apiUrl, handleCheckHealth]);
 
-  const handleConfChange = useCallback((v: number) => {
-    setConf(v);
-    localStorage.setItem(CONF_KEY, String(v));
-  }, []);
-
-  useEffect(() => {
-    handleCheckHealth();
-  }, [handleCheckHealth]);
-
-  // ── detection core ────────────────────────────────────────────────────────
-
-  const runDetection = useCallback(async (shot: CaptureResult): Promise<ScanDetection> => {
-    // Prefer publicUrl (server-side download avoids CORS), fallback to dataUrl blob upload
-    const src = shot.publicUrl || shot.dataUrl;
-    if (!src) throw new Error('no image source');
-    const imageSource: Blob | string = src.startsWith('http')
-      ? src
-      : await (await fetch(src)).blob();
-    const result = await detectImage(imageSource, shot.filename, apiUrl, conf);
-    if (shot.screenshotId) {
-      await saveDetectionResult(shot.screenshotId, shot.enterpriseId ?? null, result);
-    }
-    return buildScanDetection(shot, result);
-  }, [apiUrl, conf]);
-
-  const makeErrorDet = useCallback((shot: CaptureResult, err: unknown): ScanDetection => (
-    buildErrorDetection(shot, err)
-  ), []);
-
-  const handlePostDetection = useCallback(async (newTowerDets: ScanDetection[]) => {
-    const addressDetections = newTowerDets.filter((item) => item.source === 'address');
-    const areaDetections = newTowerDets.filter((item) => item.source === 'area');
-    const result = await uploadAllAnnotated(addressDetections, updateDetection);
-    if (result.done > 0 || result.created > 0) {
-      onDataImported?.();
-    }
-    if (areaDetections.length > 0) {
-      setUploadNotice({
-        tone: 'warning',
-        message: `区域截图新增 ${areaDetections.length} 张候选，需先审核并绑定企业后再上传标注图`,
-      });
-    }
-  }, [uploadAllAnnotated, updateDetection, onDataImported]);
-
-  // ── handleDetect ──────────────────────────────────────────────────────────
-
-  const handleDetect = useCallback(async () => {
+  const startDetection = useCallback(async () => {
     if (screenshots.length === 0) return;
+
     setIsDetecting(true);
-    setShowBanner(false);
     shouldStopRef.current = false;
     onStatusChange('detecting');
-    const working: ScanDetection[] = [...detections];
-    const newTowers: ScanDetection[] = [];
+    setProgress(0);
+
+    const newDetections: ScanDetection[] = [...detections];
+
     for (let i = 0; i < screenshots.length; i++) {
       if (shouldStopRef.current) break;
-      const shot = screenshots[i];
-      if (working.some(d => isDetectionForScreenshot(d, shot))) continue;
-      try {
-        const det = await runDetection(shot);
-        working.push(det);
-        if (det.hasCoolingTower) newTowers.push(det);
-        onDetectionsUpdate([...working]);
-      } catch (err) {
-        working.push(makeErrorDet(shot, err));
-        onDetectionsUpdate([...working]);
-      }
-    }
-    setIsDetecting(false);
-    if (!shouldStopRef.current) {
-      setShowBanner(true);
-      onStatusChange('complete');
-      await handlePostDetection(newTowers);
-    } else {
-      onStatusChange('idle');
-    }
-  }, [screenshots, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
 
-  const handleStop = useCallback(() => {
+      const shot = screenshots[i];
+      // Skip already detected
+      if (newDetections.some(d => d.screenshotFilename === shot.filename)) {
+        setProgress(i + 1);
+        continue;
+      }
+
+      try {
+        const blob = await (await fetch(shot.dataUrl)).blob();
+        const result = await detectImage(blob, shot.filename, apiUrl);
+
+        newDetections.push({
+          screenshotFilename: shot.filename,
+          lng: shot.lng,
+          lat: shot.lat,
+          hasCoolingTower: result.has_cooling_tower,
+          count: result.count,
+          confidence: result.confidence,
+          imageUrl: shot.publicUrl,
+          detections: result.detections.map(d => ({
+            class_name: d.class_name,
+            confidence: d.confidence,
+            x1: d.x1,
+            y1: d.y1,
+            x2: d.x2,
+            y2: d.y2,
+          })),
+        });
+
+        onDetectionsUpdate([...newDetections]);
+      } catch (err) {
+        newDetections.push({
+          screenshotFilename: shot.filename,
+          lng: shot.lng,
+          lat: shot.lat,
+          hasCoolingTower: false,
+          count: 0,
+          confidence: 0,
+          imageUrl: shot.publicUrl,
+          detections: [],
+        });
+        onDetectionsUpdate([...newDetections]);
+      }
+
+      setProgress(i + 1);
+    }
+
+    setIsDetecting(false);
+    onStatusChange('complete');
+  }, [screenshots, detections, apiUrl, onDetectionsUpdate, onStatusChange]);
+
+  const stopDetection = useCallback(() => {
     shouldStopRef.current = true;
   }, []);
 
-  // ── handleRedetect ────────────────────────────────────────────────────────
-
-  const handleRedetect = useCallback(async (detection: ScanDetection) => {
-    const shot = screenshots.find(s => isDetectionForScreenshot(detection, s));
-    if (!shot) return;
-    if (shot.screenshotId) await clearDetectionResults(shot.screenshotId);
-    const without = detections.filter(d => !isDetectionForScreenshot(d, shot));
-    onDetectionsUpdate(without);
-    try {
-      const det = await runDetection(shot);
-      const updated = [...without, det];
-      onDetectionsUpdate(updated);
-      if (det.hasCoolingTower) await handlePostDetection([det]);
-    } catch (err) {
-      onDetectionsUpdate([...without, makeErrorDet(shot, err)]);
-    }
-  }, [screenshots, detections, runDetection, makeErrorDet, onDetectionsUpdate, handlePostDetection]);
-
-  // ── handleBatchDetect ─────────────────────────────────────────────────────
-
-  const handleBatchDetect = useCallback(async () => {
-    const targets = screenshots.filter((s) => selected.has(getScreenshotIdentity(s)));
-    if (targets.length === 0) return;
-    setIsDetecting(true);
-    shouldStopRef.current = false;
-    onStatusChange('detecting');
-    const working: ScanDetection[] = [...detections];
-    const newTowers: ScanDetection[] = [];
-    for (const shot of targets) {
-      if (shouldStopRef.current) break;
-      const without = working.filter(d => !isDetectionForScreenshot(d, shot));
-      try {
-        const det = await runDetection(shot);
-        const idx = working.findIndex(d => isDetectionForScreenshot(d, shot));
-        if (idx >= 0) working[idx] = det; else working.push(det);
-        if (det.hasCoolingTower) newTowers.push(det);
-        onDetectionsUpdate([...working]);
-      } catch (err) {
-        const errDet = makeErrorDet(shot, err);
-        const idx = working.findIndex(d => isDetectionForScreenshot(d, shot));
-        if (idx >= 0) working[idx] = errDet; else working.push(errDet);
-        onDetectionsUpdate([...working]);
-      }
-    }
-    setIsDetecting(false);
-    onStatusChange(shouldStopRef.current ? 'idle' : 'complete');
-    if (!shouldStopRef.current) await handlePostDetection(newTowers);
-  }, [screenshots, selected, detections, runDetection, makeErrorDet, onDetectionsUpdate, onStatusChange, handlePostDetection]);
-
-  // ── handleBatchUpload ─────────────────────────────────────────────────────
-
-  const handleBatchUpload = useCallback(async () => {
-    const plan = buildAnnotatedUploadPlan(detections, selected);
-    const blockedSummary = formatBlockedUploadReasons(plan);
-
-    if (plan.ready.length === 0) {
-      const message = blockedSummary
-        ? `无法上传：${blockedSummary}`
-        : '无法上传：所选截图没有可上传的冷却塔标注图';
-      setUploadNotice({ tone: 'error', message });
-      return;
-    }
-
-    const result = await uploadAllAnnotated(plan.ready, updateDetection);
-    const parts = [`已上传 ${result.done} 张`];
-
-    if (result.failed > 0) {
-      parts.push(`${result.failed} 张失败`);
-    }
-    if (result.created > 0) {
-      parts.push(`自动创建企业 ${result.created} 家`);
-    }
-    if (blockedSummary) {
-      parts.push(blockedSummary);
-    }
-
-    if (result.done > 0) {
-      onDataImported?.();
-    }
-
-    setUploadNotice({
-      tone: result.failed > 0 || blockedSummary ? 'warning' : 'success',
-      message: formatUploadNoticeMessage(parts),
-    });
-  }, [detections, selected, uploadAllAnnotated, updateDetection, onDataImported]);
-
-  // ── selection handlers ────────────────────────────────────────────────────
-
-  const handleSelect = useCallback((identity: string, checked: boolean) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (checked) next.add(identity); else next.delete(identity);
-      return next;
-    });
-  }, []);
-
-  const handleSelectAll = useCallback((identities: string[]) => {
-    setSelected(new Set(identities));
-  }, []);
-
-  const handleClearSelection = useCallback(() => {
-    setSelected(new Set());
-  }, []);
-
-  // ── review handlers ───────────────────────────────────────────────────────
-
-  const handleOpenReview = useCallback((detection: ScanDetection) => {
-    const detectionKey = getScreenshotIdentity(detection);
-    const idx = detections.findIndex(d => getScreenshotIdentity(d) === detectionKey);
-    if (idx >= 0) setReviewIndex(idx);
-  }, [detections]);
-
-  const handleReview = useCallback((detection: ScanDetection, status: 'confirmed' | 'rejected') => {
-    updateDetection(detection, {
-      reviewStatus: status,
-      candidateStatus: status === 'confirmed' ? 'approved' : 'rejected',
-    });
-  }, [updateDetection]);
-
-  const handleLinkEnterprise = useCallback((detection: ScanDetection) => {
-    setMatchTarget(detection);
-  }, []);
-
-  const persistReviewStatus = useCallback(async (
-    detection: ScanDetection,
-    status: 'confirmed' | 'rejected',
-    rejectionReason: string,
-  ) => {
-    if (!detection.screenshotId) {
-      return;
-    }
-
-    await supabase
-      .from('scan_screenshots')
-      .update({ review_status: status })
-      .eq('id', detection.screenshotId);
-
-    await updateScanCandidatesByScreenshot(supabase, detection.screenshotId, {
-      status: status === 'confirmed' ? 'approved' : 'rejected',
-      reviewed_at: new Date().toISOString(),
-      rejection_reason: status === 'rejected' ? rejectionReason : '',
-    });
-  }, []);
-
-  const selectedDetections = detections.filter((item) => selected.has(getScreenshotIdentity(item)));
-  const selectedCandidateDetections = selectedDetections.filter((item) => item.hasCoolingTower);
-
-  const handleBatchReview = useCallback(async (status: 'confirmed' | 'rejected') => {
-    const targets = selectedCandidateDetections.filter((item) => {
-      const workflowState = getCandidateWorkflowState(item);
-      if (status === 'confirmed') {
-        return workflowState === 'pending_review';
-      }
-
-      return workflowState !== 'rejected';
-    });
-
-    if (targets.length === 0) {
-      setUploadNotice({
-        tone: 'warning',
-        message: status === 'confirmed'
-          ? '当前选中结果没有待审核候选'
-          : '当前选中结果没有可驳回候选',
-      });
-      return;
-    }
-
-    for (const target of targets) {
-      await persistReviewStatus(
-        target,
-        status,
-        status === 'rejected' ? 'bulk_review_rejected' : '',
-      );
-    }
-
-    const targetIds = new Set(targets.map((item) => getScreenshotIdentity(item)));
-    onDetectionsUpdate((prev) => prev.map((item) => (
-      targetIds.has(getScreenshotIdentity(item))
-        ? {
-            ...item,
-            reviewStatus: status,
-            candidateStatus: status === 'confirmed' ? 'approved' : 'rejected',
-          }
-        : item
-    )));
-
-    setUploadNotice({
-      tone: 'success',
-      message: status === 'confirmed'
-        ? `已通过 ${targets.length} 张候选，请继续绑定企业`
-        : `已驳回 ${targets.length} 张候选`,
-    });
-  }, [onDetectionsUpdate, persistReviewStatus, selectedCandidateDetections]);
-
-  const handleBatchBindEnterprise = useCallback(() => {
-    const first = selectedCandidateDetections.find((item) => getCandidateWorkflowState(item) === 'needs_binding');
-    if (!first) {
-      setUploadNotice({
-        tone: 'warning',
-        message: '当前选中结果没有待绑定企业的候选',
-      });
-      return;
-    }
-
-    setMatchTarget(first);
-  }, [selectedCandidateDetections]);
-
-  // ── enterprise match confirm ──────────────────────────────────────────────
-
-  const handleConfirmMatch = useCallback(async (detection: ScanDetection, enterpriseId: string) => {
-    await confirmMatch(detection, enterpriseId, updateDetection);
-    setMatchTarget(null);
-  }, [confirmMatch, updateDetection]);
-
-  // ── derived stats ─────────────────────────────────────────────────────────
-
-  const confirmedCount = detections.filter(
-    d => d.hasCoolingTower && d.confidence >= conf
-  ).length;
-  const suspiciousCount = detections.filter(
-    d => d.hasCoolingTower && d.confidence >= 0.1 && d.confidence < conf
-  ).length;
-  const noTowerCount = detections.filter(
-    d => !d.hasCoolingTower && !d.error
-  ).length;
+  const detectedCount = detections.filter(d => d.hasCoolingTower).length;
   const totalTowers = detections.reduce((sum, d) => sum + d.count, 0);
-  const candidateStats = buildCandidateReviewStats(detections);
-
-  // ── empty state ───────────────────────────────────────────────────────────
 
   if (screenshots.length === 0) {
     return (
@@ -427,54 +113,37 @@ export default function DetectionPanel({
     );
   }
 
-  // ── render ────────────────────────────────────────────────────────────────
-
   return (
-    <div className="flex flex-col h-full">
-
-      {/* Top bar */}
-      <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-700">
-        <div className="flex items-center gap-3">
+    <div className="h-full flex flex-col gap-4 p-4">
+      {/* 顶部控制栏 */}
+      <div className="flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-4">
           <h2 className="text-sm font-semibold text-white flex items-center gap-2">
             <Radar className="w-4 h-4 text-cyan-400" />
             AI 冷却塔识别
           </h2>
-          {/* Three-category summary pills */}
-          {detections.length > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-900/60 text-emerald-300">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                确认 {confirmedCount}
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-amber-900/60 text-amber-300">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                疑似 {suspiciousCount}
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-slate-700/80 text-slate-300">
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                无塔 {noTowerCount}
-              </span>
-            </div>
-          )}
+          <div className="flex items-center gap-3 text-xs text-slate-400">
+            <span>截图 {screenshots.length} 张</span>
+            <span>·</span>
+            <span>已识别 {detections.length} 张</span>
+            <span>·</span>
+            <span className="text-emerald-400">发现 {totalTowers} 个冷却塔</span>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {isDetecting && (
-            <span className="text-xs text-slate-400">
-              {detections.length} / {screenshots.length}
-            </span>
-          )}
           <button
-            onClick={() => setShowSettings(s => !s)}
+            onClick={() => setShowSettings(!showSettings)}
             className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
             title="检测服务设置"
           >
             <Settings2 className="w-4 h-4" />
           </button>
+
           {!isDetecting ? (
             <button
-              onClick={handleDetect}
-              disabled={screenshots.length === 0 || !apiUrl.trim()}
+              onClick={startDetection}
+              disabled={screenshots.length === 0}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white rounded-md transition-colors"
             >
               <Play className="w-3.5 h-3.5" />
@@ -482,7 +151,7 @@ export default function DetectionPanel({
             </button>
           ) : (
             <button
-              onClick={handleStop}
+              onClick={stopDetection}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-500 text-white rounded-md transition-colors"
             >
               <Square className="w-3.5 h-3.5" />
@@ -492,156 +161,137 @@ export default function DetectionPanel({
         </div>
       </div>
 
-      {/* Completion banner */}
-      {showBanner && (
-        <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 py-2.5 bg-gradient-to-r from-emerald-700/60 to-emerald-600/40 border-b border-emerald-500/30 text-sm">
-          <div className="flex items-center gap-3 text-white">
-            <CheckCircle2 className="w-4 h-4 text-emerald-300 flex-shrink-0" />
-            <span>识别完成 · 共 {screenshots.length} 张 · 发现冷却塔 {confirmedCount + suspiciousCount} 处 · 共 {totalTowers} 个</span>
-          </div>
-          <button onClick={() => setShowBanner(false)} className="text-emerald-300 hover:text-white transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      <CandidateSummaryCards stats={candidateStats} />
-      <CandidateActionBar
-        detections={selectedCandidateDetections}
-        onApprove={() => void handleBatchReview('confirmed')}
-        onReject={() => void handleBatchReview('rejected')}
-        onBindEnterprise={handleBatchBindEnterprise}
-      />
-
-      {uploadNotice && (
-        <div
-          className={`flex-shrink-0 flex items-center justify-between gap-3 px-4 py-2.5 border-b text-sm ${
-            uploadNotice.tone === 'success'
-              ? 'bg-gradient-to-r from-cyan-700/50 to-cyan-600/30 border-cyan-500/30 text-cyan-50'
-              : uploadNotice.tone === 'warning'
-                ? 'bg-gradient-to-r from-amber-700/50 to-amber-600/30 border-amber-500/30 text-amber-50'
-                : 'bg-gradient-to-r from-red-700/50 to-red-600/30 border-red-500/30 text-red-50'
-          }`}
-        >
-          <span>{uploadNotice.message}</span>
-          <button
-            onClick={() => setUploadNotice(null)}
-            className="transition-colors hover:text-white"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Settings panel */}
+      {/* API 设置面板 */}
       {showSettings && (
-        <div className="flex-shrink-0 px-4 py-3 bg-slate-800/80 border-b border-slate-700 space-y-3">
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-400 w-20 shrink-0">API 地址</label>
-            <input
-              type="text"
-              value={apiUrl}
-              onChange={e => setApiUrl(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSaveApiUrl()}
-              className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
-            />
-            <button
-              onClick={handleCheckHealth}
-              className="px-2 py-1 text-xs rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-            >
-              检测
-            </button>
-            <button
-              onClick={handleSaveApiUrl}
-              className="px-2 py-1 text-xs rounded bg-cyan-700 hover:bg-cyan-600 text-white transition-colors"
-            >
-              保存
-            </button>
-            {apiHealthy !== null && (
-              <span className={`text-xs ${apiHealthy ? 'text-emerald-400' : 'text-red-400'}`}>
-                {apiHealthy ? '● 正常' : '● 异常'}
-              </span>
-            )}
-          </div>
-          {!apiUrl.trim() && (
-            <p className="text-xs text-amber-400">
-              当前未配置检测服务地址。线上环境请设置 `VITE_DETECTION_API_URL` 或在这里手动填写 Railway 检测服务域名。
-            </p>
+        <div className="bg-slate-800/60 border border-slate-700/40 rounded-lg p-3 flex items-center gap-3 flex-shrink-0">
+          <label className="text-xs text-slate-400 whitespace-nowrap">检测服务地址</label>
+          <input
+            value={apiUrl}
+            onChange={e => setApiUrl(e.target.value)}
+            className="flex-1 bg-slate-900 border border-slate-700/50 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+            placeholder="http://localhost:8000"
+          />
+          <button
+            onClick={handleSaveApiUrl}
+            className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded transition-colors"
+          >
+            保存
+          </button>
+          <button
+            onClick={handleCheckHealth}
+            className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded transition-colors"
+          >
+            测试
+          </button>
+          {apiHealthy !== null && (
+            <span className={`text-xs ${apiHealthy ? 'text-emerald-400' : 'text-red-400'}`}>
+              {apiHealthy ? '✓ 连接正常' : '✗ 无法连接'}
+            </span>
           )}
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-400 w-20 shrink-0">
-              置信度阈值 <span className="text-white">{conf.toFixed(2)}</span>
-            </label>
-            <input
-              type="range"
-              min={0.1} max={0.9} step={0.05}
-              value={conf}
-              onChange={e => handleConfChange(parseFloat(e.target.value))}
-              className="flex-1 accent-cyan-500"
+        </div>
+      )}
+
+      {/* 进度条 */}
+      {isDetecting && (
+        <div className="flex-shrink-0">
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+            <span className="flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              识别中...
+            </span>
+            <span>{progress}/{screenshots.length}</span>
+          </div>
+          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-300"
+              style={{ width: `${(progress / screenshots.length) * 100}%` }}
             />
           </div>
         </div>
       )}
 
-      {/* Filter bar */}
-      <DetectionFilterBar
-        filters={filters}
-        onChange={setFilters}
-        detections={detections}
-      />
-
-      {/* Screenshot grid */}
+      {/* 截图网格 */}
       <div className="flex-1 overflow-y-auto">
-        <ScreenshotGrid
-          screenshots={screenshots}
-          detections={filteredDetections}
-          selected={selected}
-          onSelect={handleSelect}
-          onSelectAll={handleSelectAll}
-          onClearSelection={handleClearSelection}
-          onReview={handleOpenReview}
-          confThreshold={conf}
-        />
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+          {screenshots.map((shot) => {
+            const detection = detections.find(d => d.screenshotFilename === shot.filename);
+            const hasResult = !!detection;
+            const hasTower = detection?.hasCoolingTower ?? false;
+
+            return (
+              <div
+                key={shot.filename}
+                className={`relative rounded-lg overflow-hidden border transition-all ${
+                  hasTower
+                    ? 'border-emerald-500/50 ring-1 ring-emerald-500/20'
+                    : hasResult
+                    ? 'border-slate-700/40'
+                    : 'border-slate-700/20'
+                }`}
+              >
+                <img
+                  src={shot.dataUrl}
+                  alt={shot.filename}
+                  className="w-full aspect-square object-cover"
+                />
+
+                {/* 状态标签 */}
+                <div className="absolute top-1.5 right-1.5">
+                  {hasResult ? (
+                    hasTower ? (
+                      <div className="flex items-center gap-1 bg-emerald-600/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] text-white font-medium">
+                        <CheckCircle2 className="w-3 h-3" />
+                        {detection.count}个
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 bg-slate-600/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] text-slate-300">
+                        <XCircle className="w-3 h-3" />
+                        无
+                      </div>
+                    )
+                  ) : isDetecting ? (
+                    <div className="bg-slate-800/80 backdrop-blur-sm px-1.5 py-0.5 rounded">
+                      <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* 底部信息 */}
+                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5">
+                  <p className="text-[10px] text-white/70 truncate">
+                    ({shot.lng.toFixed(4)}, {shot.lat.toFixed(4)})
+                  </p>
+                  {hasTower && detection && (
+                    <p className="text-[10px] text-emerald-400">
+                      置信度 {(detection.confidence * 100).toFixed(0)}%
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Floating action bar */}
-      <FloatingActionBar
-        selectedCount={selected.size}
-        onDetect={handleBatchDetect}
-        onUpload={handleBatchUpload}
-        onDelete={() => {
-          const without = detections.filter((d) => !selected.has(getScreenshotIdentity(d)));
-          onDetectionsUpdate(without);
-          setSelected(new Set());
-        }}
-        onLinkEnterprise={() => {
-          const first = selectedCandidateDetections.find((item) => getCandidateWorkflowState(item) === 'needs_binding')
-            ?? selectedCandidateDetections[0];
-          if (first) setMatchTarget(first);
-        }}
-        isDetecting={isDetecting}
-        uploadTitle={selectedUploadPlan.ready.length === 0 ? '所选截图需先审核或绑定企业后再上传' : undefined}
-      />
-
-      {/* Review modal */}
-      {reviewIndex !== null && (
-        <ReviewModal
-          detections={detections}
-          initialIndex={reviewIndex}
-          onClose={() => setReviewIndex(null)}
-          onReview={handleReview}
-          onRedetect={handleRedetect}
-          onLinkEnterprise={handleLinkEnterprise}
-        />
-      )}
-
-      {/* Enterprise match modal */}
-      {matchTarget !== null && (
-        <EnterpriseMatchModal
-          detection={matchTarget}
-          onClose={() => setMatchTarget(null)}
-          onConfirm={handleConfirmMatch}
-        />
+      {/* 底部统计 */}
+      {detections.length > 0 && (
+        <div className="flex-shrink-0 flex items-center gap-4 px-3 py-2 bg-slate-800/40 rounded-lg border border-slate-700/30 text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="text-slate-400">有冷却塔</span>
+            <span className="text-white font-medium">{detectedCount}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-slate-500" />
+            <span className="text-slate-400">无冷却塔</span>
+            <span className="text-white font-medium">{detections.length - detectedCount}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-cyan-500" />
+            <span className="text-slate-400">冷却塔总数</span>
+            <span className="text-white font-medium">{totalTowers}</span>
+          </div>
+        </div>
       )}
     </div>
   );

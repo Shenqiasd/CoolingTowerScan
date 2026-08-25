@@ -1,12 +1,7 @@
 {
-  "name": "cooling-tower-scan",
+  "name": "vite-react-typescript-starter",
   "private": true,
-  "version": "1.0.0",
-  "description": "冷却塔识别与HVAC交付全流程数字化平台",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Shenqiasd/CoolingTowerScan"
-  },
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,14 +13,12 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
     "@types/mapbox-gl": "^3.4.1",
-    "gcoord": "^1.0.7",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.344.0",
     "mapbox-gl": "^3.21.0",
     "papaparse": "^5.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.1",
     "react-leaflet": "^4.2.1",
     "react-leaflet-cluster": "^2.1.0",
     "recharts": "^2.12.7",
@@ -45,7 +38,7 @@
     "globals": "^15.9.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.9.3",
+    "typescript": "^5.5.3",
     "typescript-eslint": "^8.3.0",
     "vite": "^5.4.2"
   }

@@ -1,6 +1,5 @@
 const API_URL_KEY = 'detection_api_url';
-const ENV_URL = (import.meta.env.VITE_DETECTION_API_URL || '').trim();
-const DEFAULT_URL = ENV_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
+const DEFAULT_URL = 'http://localhost:8000';
 
 export function getDetectionApiUrl(): string {
   return localStorage.getItem(API_URL_KEY) || DEFAULT_URL;
@@ -29,44 +28,28 @@ export interface DetectionApiResult {
 }
 
 export async function detectImage(
-  imageSource: Blob | string,
+  imageBlob: Blob,
   filename: string,
   apiUrl?: string,
-  conf?: number,
 ): Promise<DetectionApiResult> {
   const url = apiUrl || getDetectionApiUrl();
-  if (!url) {
-    throw new Error('检测服务地址未配置');
-  }
-  const confParam = conf !== undefined ? `?conf=${conf}` : '';
-
-  // If it's a remote URL, let the server download it (avoids CORS)
-  if (typeof imageSource === 'string' && imageSource.startsWith('http')) {
-    const response = await fetch(`${url}/detect/url${confParam}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_url: imageSource }),
-    });
-    if (!response.ok) throw new Error(`检测失败: ${response.status} ${response.statusText}`);
-    return response.json();
-  }
-
-  // Blob: upload directly
   const formData = new FormData();
-  formData.append('image', imageSource as Blob, filename);
-  const response = await fetch(`${url}/detect${confParam}`, {
+  formData.append('image', imageBlob, filename);
+
+  const response = await fetch(`${url}/detect`, {
     method: 'POST',
     body: formData,
   });
-  if (!response.ok) throw new Error(`检测失败: ${response.status} ${response.statusText}`);
+
+  if (!response.ok) {
+    throw new Error(`检测失败: ${response.status} ${response.statusText}`);
+  }
+
   return response.json();
 }
 
 export async function checkHealth(apiUrl?: string): Promise<boolean> {
   const url = apiUrl || getDetectionApiUrl();
-  if (!url) {
-    return false;
-  }
   try {
     const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
     return res.ok;
